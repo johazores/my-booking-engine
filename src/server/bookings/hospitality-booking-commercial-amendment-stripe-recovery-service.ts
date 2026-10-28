@@ -732,6 +732,28 @@ async function persistRecoveryProviderResult(input: {
       );
     }
     const status = stripeCommercialAmendmentRefundPersistenceStatus(result.status);
+    const conflictingRefundReference = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: refundReference,
+        id: { not: current.id },
+      },
+      select: { id: true },
+    });
+    if (conflictingRefundReference) throw new HospitalityBookingConflictError('Stripe recovery refund reference is already owned by another payment transaction.');
+
+    const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: claim.providerReference,
+        bookingId: { not: input.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
+
     const updated = await transaction.paymentTransaction.update({
       where: exactRecoveryPaymentMutationWhere({
         organizationId: input.organizationId,
@@ -1260,6 +1282,30 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
   if (payment.status !== 'AMBIGUOUS') return settleRecoveryOutcome(input);
 
   const claim = assertRecoveryClaim(payment, input.amendmentId);
+  if (payment.kind === 'REFUND' && !isInternalPaymentClaimReference(payment.providerReference)) {
+    const conflictingRefundReference = await db.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: payment.providerReference,
+        id: { not: payment.id },
+      },
+      select: { id: true },
+    });
+    if (conflictingRefundReference) throw new HospitalityBookingConflictError('Stripe refund reference is already owned by another payment transaction.');
+
+    const foreignRefundSource = await db.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: claim.providerReference,
+        bookingId: { not: input.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
+
+  }
   const stripe = await loadStripePaymentIntegration(input.organizationId);
 
   let status: 'SUCCEEDED' | 'FAILED' | 'AMBIGUOUS';
@@ -1367,6 +1413,30 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRecove
       );
     }
     assertRecoveryClaim(current, input.amendmentId);
+    if (current.kind === 'REFUND') {
+      const conflictingRefundReference = await transaction.paymentTransaction.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: current.providerReference,
+          id: { not: current.id },
+        },
+        select: { id: true },
+      });
+      if (conflictingRefundReference) throw new HospitalityBookingConflictError('Stripe refund reference is already owned by another payment transaction.');
+
+      const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          providerCode: STRIPE_PROVIDER_CODE,
+          providerReference: current.sourceProviderReference,
+          bookingId: { not: input.bookingId },
+        },
+        select: { id: true },
+      });
+      if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
+
+    }
     const persisted = await transaction.paymentTransaction.update({
       where: exactRecoveryPaymentMutationWhere({
         organizationId: input.organizationId,

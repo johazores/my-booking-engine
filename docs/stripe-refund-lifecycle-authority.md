@@ -82,6 +82,8 @@ An exact Stripe Refund ID is not safe to reconcile if another payment transactio
 
 Explicit normal refund reconciliation, verified normal refund lifecycle handling, and verified commercial-amendment refund lifecycle handling now check both conflicts before retrieving Stripe provider truth and repeat them inside the final serializable transaction under the existing booking/payment locks. These checks reject inconsistent historical ledger evidence rather than updating the wrong booking or amendment. Legitimate same-booking authorization/capture sharing of a source PaymentIntent remains supported.
 
+Amendment refund initiation also rejects a foreign-booking settlement source before requesting a Stripe refund and again before persisting the provider result. Explicit amendment refund reconciliation and compensation-refund recovery reject reused refund references and foreign-booking settlement sources before provider-truth reads and inside final transactions. Compensation-refund result persistence independently rejects an already owned Stripe Refund ID. No new provider capability or automatic recovery action is introduced.
+
 These are fail-closed read-time checks, not a database-enforced concurrent cross-booking uniqueness guarantee. A reviewed database integrity strategy and disposable PostgreSQL validation are still required. The source contract covers the three reconciliation paths; it does not claim that the database integration suite or live Stripe behavior passed.
 
 ## Validation boundary

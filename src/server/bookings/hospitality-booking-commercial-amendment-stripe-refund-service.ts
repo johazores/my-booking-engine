@@ -429,6 +429,17 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
     return { payment: claim.payment, idempotent: true as const, needsReconciliation: claim.needsReconciliation };
   }
 
+  const foreignRefundSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: claim.claim.sourceProviderReference,
+      bookingId: { not: input.bookingId },
+    },
+    select: { id: true },
+  });
+  if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
+
   let providerResult: ProviderRefundResult;
   try {
     providerResult = await stripe.provider.refundPayment({
@@ -504,6 +515,17 @@ export async function refundStripeHospitalityBookingCommercialAmendment(input: {
       select: { id: true },
     });
     if (duplicateReference) throw new HospitalityBookingConflictError('Stripe refund reference is already recorded in this organization.');
+
+    const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.sourceProviderReference,
+        bookingId: { not: input.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
 
     const payment = await transaction.paymentTransaction.update({
       where: {
@@ -608,6 +630,28 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
   }
   assertExistingClaim({ existing: payment, bookingId: input.bookingId, amendmentId: input.amendmentId });
 
+  const conflictingRefundReference = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: payment.providerReference,
+      id: { not: payment.id },
+    },
+    select: { id: true },
+  });
+  if (conflictingRefundReference) throw new HospitalityBookingConflictError('Stripe refund reference is already owned by another payment transaction.');
+
+  const foreignRefundSource = await db.paymentTransaction.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      providerCode: STRIPE_PROVIDER_CODE,
+      providerReference: payment.sourceProviderReference,
+      bookingId: { not: input.bookingId },
+    },
+    select: { id: true },
+  });
+  if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
+
   const stripe = await loadStripePaymentIntegration(input.organizationId);
   if (!stripe.integration.capabilities.includes('payment-refund')) {
     throw new HospitalityBookingConflictError('Stripe integration is not configured for payment-refund.');
@@ -657,6 +701,28 @@ export async function reconcileStripeHospitalityBookingCommercialAmendmentRefund
     ) {
       throw new HospitalityBookingConflictError('Commercial amendment Stripe refund changed during reconciliation.');
     }
+
+    const conflictingRefundReference = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.providerReference,
+        id: { not: current.id },
+      },
+      select: { id: true },
+    });
+    if (conflictingRefundReference) throw new HospitalityBookingConflictError('Stripe refund reference is already owned by another payment transaction.');
+
+    const foreignRefundSource = await transaction.paymentTransaction.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        providerCode: STRIPE_PROVIDER_CODE,
+        providerReference: current.sourceProviderReference,
+        bookingId: { not: input.bookingId },
+      },
+      select: { id: true },
+    });
+    if (foreignRefundSource) throw new HospitalityBookingConflictError('Stripe refund source belongs to another booking.');
 
     const updated = await transaction.paymentTransaction.update({
       where: {

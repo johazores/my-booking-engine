@@ -6,6 +6,8 @@ const route = readFileSync(new URL('../app/api/webhooks/stripe/[organization-id]
 const lifecycle = readFileSync(new URL('../src/server/payments/stripe-refund-lifecycle-service.ts', import.meta.url), 'utf8');
 const reconciliation = readFileSync(new URL('../src/server/payments/stripe-refund-reconciliation-service.ts', import.meta.url), 'utf8');
 const amendmentLifecycle = readFileSync(new URL('../src/server/bookings/hospitality-booking-commercial-amendment-stripe-refund-lifecycle-service.ts', import.meta.url), 'utf8');
+const amendmentRefund = readFileSync(new URL('../src/server/bookings/hospitality-booking-commercial-amendment-stripe-refund-service.ts', import.meta.url), 'utf8');
+const amendmentRecovery = readFileSync(new URL('../src/server/bookings/hospitality-booking-commercial-amendment-stripe-recovery-service.ts', import.meta.url), 'utf8');
 const docs = readFileSync(new URL('../docs/stripe-refund-lifecycle-authority.md', import.meta.url), 'utf8');
 
 test('verified webhook routing reconciles exact refund provider truth before specialized finalizers', () => {
@@ -78,4 +80,32 @@ test('all exact Stripe refund lifecycle readers reject reused refund and foreign
     assert.match(service.slice(finalRefund), /providerReference: current\.providerReference,[\s\S]*id: \{ not: current\.id \}/, name);
     assert.match(service.slice(finalSource), /providerReference: current\.sourceProviderReference,[\s\S]*bookingId: \{ not: refund\.bookingId \}/, name);
   }
+});
+
+test('amendment refund initiation, explicit reconciliation and compensation recovery protect refund identities', () => {
+  const initiation = amendmentRefund.indexOf('providerResult = await stripe.provider.refundPayment({');
+  const initialSource = amendmentRefund.indexOf('const foreignRefundSource = await db.paymentTransaction.findFirst({');
+  assert.ok(initialSource >= 0 && initiation > initialSource, 'refund source must be scoped before the provider write');
+  const finalSource = amendmentRefund.indexOf('const foreignRefundSource = await transaction.paymentTransaction.findFirst({');
+  assert.ok(finalSource > initiation, 'refund source must be rechecked at result persistence');
+
+  const explicitRefund = amendmentRefund.indexOf('const conflictingRefundReference = await db.paymentTransaction.findFirst({');
+  const explicitSource = amendmentRefund.indexOf('const foreignRefundSource = await db.paymentTransaction.findFirst({', explicitRefund);
+  const explicitProvider = amendmentRefund.indexOf('const snapshot = await stripe.refundReconciliationProvider.retrieveRefund(');
+  const explicitFinalRefund = amendmentRefund.indexOf('const conflictingRefundReference = await transaction.paymentTransaction.findFirst({');
+  assert.ok(explicitRefund >= 0 && explicitSource > explicitRefund && explicitProvider > explicitSource, 'explicit refund must reject conflicting references before Stripe retrieval');
+  assert.ok(explicitFinalRefund > explicitProvider, 'explicit refund must recheck refund reference in final transaction');
+
+  const recoveryResult = amendmentRecovery.indexOf('const status = stripeCommercialAmendmentRefundPersistenceStatus(result.status);');
+  const recoveryResultConflict = amendmentRecovery.indexOf('providerReference: refundReference,', recoveryResult);
+  const recoveryResultUpdate = amendmentRecovery.indexOf('data: {\n        providerReference: refundReference,', recoveryResult);
+  assert.ok(recoveryResultConflict > recoveryResult && recoveryResultUpdate > recoveryResultConflict, 'recovery result must check refund ownership before persistence');
+  assert.match(amendmentRecovery.slice(recoveryResultConflict, recoveryResultUpdate), /providerReference: claim\.providerReference,[\s\S]*bookingId: \{ not: input\.bookingId \}/);
+
+  const reconcile = amendmentRecovery.indexOf('export async function reconcileStripeHospitalityBookingCommercialAmendmentRecovery(');
+  const preflight = amendmentRecovery.indexOf('const conflictingRefundReference = await db.paymentTransaction.findFirst({', reconcile);
+  const provider = amendmentRecovery.indexOf('const stripe = await loadStripePaymentIntegration(input.organizationId);', reconcile);
+  const final = amendmentRecovery.indexOf('const conflictingRefundReference = await transaction.paymentTransaction.findFirst({', reconcile);
+  assert.ok(preflight > reconcile && provider > preflight && final > provider, 'recovery refund must recheck identity before provider and final write');
+  assert.match(amendmentRecovery.slice(preflight, provider), /providerReference: claim\.providerReference,[\s\S]*bookingId: \{ not: input\.bookingId \}/);
 });
