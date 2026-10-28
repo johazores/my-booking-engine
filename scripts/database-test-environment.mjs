@@ -33,6 +33,11 @@ export function readLocalApplicationDatabaseUrls(rootDirectory = process.cwd()) 
       // Never include the raw parse error; local environment files can hold secrets.
       throw new Error(`Cannot parse ${filename} while checking the disposable database target.`);
     }
+    // Prisma's dotenv loader can import PGPORT after the runner preflight.
+    // Reject local overrides rather than comparing URLs against the wrong port.
+    if (parsed.PGPORT?.trim()) {
+      throw new Error(`PGPORT in ${filename} is not supported for disposable database tests; specify ports in PostgreSQL URLs.`);
+    }
     const url = parsed.DATABASE_URL?.trim();
     if (url) urls.push(url);
   }

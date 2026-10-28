@@ -108,3 +108,27 @@ test('fails closed when an application target is an unresolved interpolation', (
     assert.throws(() => validateWithLocalFiles(root), /DATABASE_URL must be a valid PostgreSQL URL/);
   });
 });
+
+test('rejects PGPORT from every local env variant before database operations', () => {
+  const variants = [
+    '.env', '.env.local', '.env.development', '.env.development.local',
+    '.env.production', '.env.production.local', '.env.test', '.env.test.local',
+  ];
+  for (const filename of variants) {
+    withFixture((root) => {
+      writeFileSync(join(root, filename), 'PGPORT=6543\nDATABASE_URL=postgresql://localhost:5432/sf_app\n');
+      assert.throws(
+        () => readLocalApplicationDatabaseUrls(root),
+        /PGPORT in \.env.* is not supported for disposable database tests/,
+        filename,
+      );
+    });
+  }
+});
+
+test('ignores blank local PGPORT values without changing URL comparisons', () => {
+  withFixture((root) => {
+    writeFileSync(join(root, '.env'), 'PGPORT="  "\nDATABASE_URL=postgresql://localhost:5432/sf_app\n');
+    assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_app']);
+  });
+});
