@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
+import { assertNoPostgresConnectionOverrides, DISALLOWED_POSTGRES_ENV_KEYS, readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
 import { DATABASE_TEST_CONFIRMATION, validateDisposableTestDatabase } from './database-test-safety.mjs';
 
 function withFixture(run) {
@@ -130,5 +130,43 @@ test('ignores blank local PGPORT values without changing URL comparisons', () =>
   withFixture((root) => {
     writeFileSync(join(root, '.env'), 'PGPORT="  "\nDATABASE_URL=postgresql://localhost:5432/sf_app\n');
     assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_app']);
+  });
+});
+
+test('rejects inherited PostgreSQL target and session overrides without exposing values', () => {
+  for (const key of DISALLOWED_POSTGRES_ENV_KEYS) {
+    assert.throws(
+      () => assertNoPostgresConnectionOverrides({ [key]: 'secret-target-or-option' }),
+      (error) => error.message.includes(key) && !error.message.includes('secret-target-or-option'),
+      key,
+    );
+  }
+});
+
+test('rejects late-loaded PostgreSQL target and session overrides in every local env variant', () => {
+  const variants = [
+    '.env', '.env.local', '.env.development', '.env.development.local',
+    '.env.production', '.env.production.local', '.env.test', '.env.test.local',
+  ];
+  for (const filename of variants) {
+    for (const key of DISALLOWED_POSTGRES_ENV_KEYS) {
+      withFixture((root) => {
+        writeFileSync(join(root, filename), `${key}=secret-target-or-option\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n`);
+        assert.throws(
+          () => readLocalApplicationDatabaseUrls(root),
+          (error) => error.message.includes(key) && error.message.includes(filename) && !error.message.includes('secret-target-or-option'),
+          `${filename}: ${key}`,
+        );
+      });
+    }
+  }
+});
+
+test('blank inherited and local PostgreSQL override variables do not block explicit URLs', () => {
+  const blank = Object.fromEntries(DISALLOWED_POSTGRES_ENV_KEYS.map((key) => [key, '   ']));
+  assert.doesNotThrow(() => assertNoPostgresConnectionOverrides(blank));
+  withFixture((root) => {
+    writeFileSync(join(root, '.env.local'), `${DISALLOWED_POSTGRES_ENV_KEYS.map((key) => `${key}="  "`).join('\n')}\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n`);
+    assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_dev']);
   });
 });

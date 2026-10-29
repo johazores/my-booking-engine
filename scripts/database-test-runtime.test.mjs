@@ -23,9 +23,11 @@ test('fails closed before database operations on unsupported or malformed Node v
 test('database runner checks runtime before target validation and migrations', () => {
   const runner = readFileSync(new URL('./run-database-tests.mjs', import.meta.url), 'utf8');
   const runtimeGuard = runner.indexOf('assertSupportedDatabaseTestRuntime();');
+  const environmentGuard = runner.indexOf('assertNoPostgresConnectionOverrides(process.env);');
   const targetGuard = runner.indexOf('const testDatabaseUrl = validateDisposableTestDatabase(');
   const migration = runner.indexOf("run(npmCommand, ['run', 'db:deploy']);");
   assert.ok(runtimeGuard >= 0, 'runner must enforce the Node runtime');
-  assert.ok(targetGuard > runtimeGuard, 'runtime must be checked before target validation');
+  assert.ok(environmentGuard > runtimeGuard, 'runtime must be checked before PostgreSQL environment validation');
+  assert.ok(targetGuard > environmentGuard, 'connection environment must be checked before target validation');
   assert.ok(migration > targetGuard, 'migration deployment must follow both preflights');
 });

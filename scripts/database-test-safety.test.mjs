@@ -264,3 +264,25 @@ test('explicit URL ports remain authoritative when PGPORT is inherited', () => {
     'postgresql://localhost/sf_test',
   );
 });
+
+test('rejects URL session options that could alter database integrity behavior', () => {
+  for (const variable of ['testDatabaseUrl', 'applicationDatabaseUrl']) {
+    for (const parameter of ['options', 'OPTIONS', '%6fptions']) {
+      assert.throws(
+        () => validateDisposableTestDatabase({
+          ...validInput,
+          [variable]: `postgresql://localhost:5432/sf_test?${parameter}=-c%20session_replication_role%3Dreplica`,
+        }),
+        /must not set PostgreSQL session options in URL parameters/,
+        `${variable}: ${parameter}`,
+      );
+    }
+  }
+  assert.equal(
+    validateDisposableTestDatabase({
+      ...validInput,
+      testDatabaseUrl: 'postgresql://localhost:5432/sf_test?application_name=sf-tests',
+    }),
+    'postgresql://localhost:5432/sf_test?application_name=sf-tests',
+  );
+});

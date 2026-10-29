@@ -66,6 +66,12 @@ function parsePostgresDatabaseTarget(value, variableName, pgPort) {
     throw new Error(`${variableName} must not override PostgreSQL host, port, database, or service in URL parameters.`);
   }
 
+  // libpq/driver session options can change search_path or suppress integrity
+  // triggers. Never run migration/integration checks with those overrides.
+  if ([...parsedUrl.searchParams.keys()].some((key) => key.toLowerCase() === 'options')) {
+    throw new Error(`${variableName} must not set PostgreSQL session options in URL parameters for database integration tests.`);
+  }
+
   if (!parsedUrl.hostname) {
     throw new Error(`${variableName} must specify an explicit PostgreSQL hostname.`);
   }

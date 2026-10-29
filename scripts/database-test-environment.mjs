@@ -15,6 +15,20 @@ const APPLICATION_ENV_FILES = [
   '.env.test.local',
 ];
 
+// URL host/database authority must not be silently replaced by libpq-style
+// environment defaults, and session options must not disable integrity checks.
+export const DISALLOWED_POSTGRES_ENV_KEYS = [
+  'PGHOST', 'PGHOSTADDR', 'PGDATABASE', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS',
+];
+
+export function assertNoPostgresConnectionOverrides(environment = process.env, source = 'process environment') {
+  for (const key of DISALLOWED_POSTGRES_ENV_KEYS) {
+    if (typeof environment[key] === 'string' && environment[key].trim()) {
+      throw new Error(`${key} in ${source} is not supported for disposable database tests; configure the connection through explicit PostgreSQL URLs.`);
+    }
+  }
+}
+
 export function readLocalApplicationDatabaseUrls(rootDirectory = process.cwd()) {
   const urls = [];
   for (const filename of APPLICATION_ENV_FILES) {
@@ -33,6 +47,7 @@ export function readLocalApplicationDatabaseUrls(rootDirectory = process.cwd()) 
       // Never include the raw parse error; local environment files can hold secrets.
       throw new Error(`Cannot parse ${filename} while checking the disposable database target.`);
     }
+    assertNoPostgresConnectionOverrides(parsed, filename);
     // Prisma's dotenv loader can import PGPORT after the runner preflight.
     // Reject local overrides rather than comparing URLs against the wrong port.
     if (parsed.PGPORT?.trim()) {

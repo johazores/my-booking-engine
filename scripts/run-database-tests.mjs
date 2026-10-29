@@ -4,9 +4,10 @@ import { assertRequiredDatabaseIntegrationTests, discoverDatabaseIntegrationTest
 
 import { validateDisposableTestDatabase } from './database-test-safety.mjs';
 import { assertSupportedDatabaseTestRuntime } from './database-test-runtime.mjs';
-import { readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
+import { assertNoPostgresConnectionOverrides, readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
 
 assertSupportedDatabaseTestRuntime();
+assertNoPostgresConnectionOverrides(process.env);
 
 const testDatabaseUrl = validateDisposableTestDatabase({
   testDatabaseUrl: process.env.TEST_DATABASE_URL,
