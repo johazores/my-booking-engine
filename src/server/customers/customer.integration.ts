@@ -15,21 +15,23 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, de-identi
   ]);
 
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `customer-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `customer-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `customer-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const outsider = await db.user.create({ data: { email: `customer-outsider-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Customer Tenant A', slug: `customer-a-${runId}`.slice(0, 63), kind: 'OTHER' } });
-  const organizationB = await db.organization.create({ data: { name: 'Customer Tenant B', slug: `customer-b-${runId}`.slice(0, 63), kind: 'OTHER' } });
-  await db.organizationMembership.createMany({
-    data: [
-      { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
-      { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
-      { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
-    ],
-  });
-
+  const userIds = Array.from({ length: 4 }, () => crypto.randomUUID());
+  const organizationIds = [crypto.randomUUID(), crypto.randomUUID()];
   try {
+    const adminA = await db.user.create({ data: { id: userIds[0], email: `customer-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const staffA = await db.user.create({ data: { id: userIds[1], email: `customer-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const adminB = await db.user.create({ data: { id: userIds[2], email: `customer-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+    const outsider = await db.user.create({ data: { id: userIds[3], email: `customer-outsider-${runId}@example.test`, status: 'ACTIVE' } });
+    const organizationA = await db.organization.create({ data: { id: organizationIds[0], name: 'Customer Tenant A', slug: `customer-a-${runId}`.slice(0, 63), kind: 'OTHER' } });
+    const organizationB = await db.organization.create({ data: { id: organizationIds[1], name: 'Customer Tenant B', slug: `customer-b-${runId}`.slice(0, 63), kind: 'OTHER' } });
+    await db.organizationMembership.createMany({
+      data: [
+        { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
+        { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
+        { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
+      ],
+    });
+
     await assert.rejects(
       customers.createCustomer({
         organizationId: organizationA.id,
@@ -161,10 +163,14 @@ test('customer workflow enforces tenant scope, permissions, lifecycle, de-identi
       /not available/i,
     );
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.customer.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id, outsider.id] } } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.customer.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organization.deleteMany({ where: { id: { in: organizationIds } } });
+      await db.user.deleteMany({ where: { id: { in: userIds } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

@@ -63,10 +63,11 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
     });
     assert.equal(await authService.resolveAuthSession(signedInAgain.token), null);
   } finally {
-    if (userId) {
-      await db.user.delete({ where: { id: userId } });
+    try {
+      // Registration can persist a user before a later step fails to return its ID.
+      await db.user.deleteMany({ where: { email } });
+    } finally {
+      await db.$disconnect();
     }
-
-    await db.$disconnect();
   }
 });

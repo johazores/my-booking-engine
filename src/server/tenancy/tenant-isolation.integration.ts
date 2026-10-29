@@ -24,58 +24,20 @@ test('tenant repositories deny cross-tenant and inactive-principal access across
   const userBEmail = `sf-b-${suffix}@example.test`;
   const invitedUserEmail = `sf-invited-${suffix}@example.test`;
 
-  const createdOrganizationIds: string[] = [];
-  const createdUserIds: string[] = [];
+  // Preassign cleanup identities before any fixture write.
+  const createdOrganizationIds: string[] = [crypto.randomUUID(), crypto.randomUUID()];
+  const createdUserIds: string[] = Array.from({ length: 3 }, () => crypto.randomUUID());
 
   try {
-    const [userA, userB, invitedUser] = await Promise.all([
-      db.user.create({ data: { email: userAEmail } }),
-      db.user.create({ data: { email: userBEmail } }),
-      db.user.create({ data: { email: invitedUserEmail } }),
-    ]);
-
-    createdUserIds.push(userA.id, userB.id, invitedUser.id);
-
-    const [tenantA, tenantB] = await Promise.all([
-      db.organization.create({
-        data: {
-          slug: tenantASlug,
-          name: 'SF Tenant A',
-          kind: 'HOTEL',
-        },
-      }),
-      db.organization.create({
-        data: {
-          slug: tenantBSlug,
-          name: 'SF Tenant B',
-          kind: 'HOTEL',
-        },
-      }),
-    ]);
-
-    createdOrganizationIds.push(tenantA.id, tenantB.id);
-
-    const [membershipA, membershipB, invitedMembership] = await Promise.all([
-      db.organizationMembership.create({
-        data: {
-          organizationId: tenantA.id,
-          userId: userA.id,
-        },
-      }),
-      db.organizationMembership.create({
-        data: {
-          organizationId: tenantB.id,
-          userId: userB.id,
-        },
-      }),
-      db.organizationMembership.create({
-        data: {
-          organizationId: tenantA.id,
-          userId: invitedUser.id,
-          status: 'INVITED',
-        },
-      }),
-    ]);
+    const userA = await db.user.create({ data: { id: createdUserIds[0], email: userAEmail } });
+    const userB = await db.user.create({ data: { id: createdUserIds[1], email: userBEmail } });
+    const invitedUser = await db.user.create({ data: { id: createdUserIds[2], email: invitedUserEmail } });
+    const tenantA = await db.organization.create({ data: { id: createdOrganizationIds[0], slug: tenantASlug, name: 'SF Tenant A', kind: 'HOTEL' } });
+    const tenantB = await db.organization.create({ data: { id: createdOrganizationIds[1], slug: tenantBSlug, name: 'SF Tenant B', kind: 'HOTEL' } });
+    // Sequential setup prevents teardown racing unfinished parallel inserts.
+    const membershipA = await db.organizationMembership.create({ data: { organizationId: tenantA.id, userId: userA.id } });
+    const membershipB = await db.organizationMembership.create({ data: { organizationId: tenantB.id, userId: userB.id } });
+    const invitedMembership = await db.organizationMembership.create({ data: { organizationId: tenantA.id, userId: invitedUser.id, status: 'INVITED' } });
 
     assert.equal(
       (await organizationRepository.findOrganizationForUser({
@@ -314,29 +276,32 @@ test('tenant repositories deny cross-tenant and inactive-principal access across
       [],
     );
   } finally {
-    if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
-      await db.organizationMembership.deleteMany({
-        where: {
-          OR: [
-            { organizationId: { in: createdOrganizationIds } },
-            { userId: { in: createdUserIds } },
-          ],
-        },
-      });
-    }
+    try {
+      if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
+        await db.organizationMembership.deleteMany({
+          where: {
+            OR: [
+              { organizationId: { in: createdOrganizationIds } },
+              { userId: { in: createdUserIds } },
+            ],
+          },
+        });
+      }
 
-    if (createdOrganizationIds.length > 0) {
-      await db.organization.deleteMany({
-        where: { id: { in: createdOrganizationIds } },
-      });
-    }
+      if (createdOrganizationIds.length > 0) {
+        await db.organization.deleteMany({
+          where: { id: { in: createdOrganizationIds } },
+        });
+      }
 
-    if (createdUserIds.length > 0) {
-      await db.user.deleteMany({
-        where: { id: { in: createdUserIds } },
-      });
-    }
+      if (createdUserIds.length > 0) {
+        await db.user.deleteMany({
+          where: { id: { in: createdUserIds } },
+        });
+      }
 
-    await db.$disconnect();
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

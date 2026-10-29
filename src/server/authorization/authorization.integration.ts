@@ -17,31 +17,23 @@ test('authorization services enforce tenant scope, least privilege, audit writes
   ]);
 
   const suffix = `${process.pid}-${Date.now()}`;
-  const createdOrganizationIds: string[] = [];
-  const createdUserIds: string[] = [];
+  // Preassign cleanup identities before any fixture write.
+  const createdOrganizationIds: string[] = [crypto.randomUUID(), crypto.randomUUID()];
+  const createdUserIds: string[] = Array.from({ length: 5 }, () => crypto.randomUUID());
 
   try {
-    const [admin, manager, staff, otherAdmin, platformAdmin] = await Promise.all([
-      db.user.create({ data: { email: `auth-admin-${suffix}@example.test` } }),
-      db.user.create({ data: { email: `auth-manager-${suffix}@example.test` } }),
-      db.user.create({ data: { email: `auth-staff-${suffix}@example.test` } }),
-      db.user.create({ data: { email: `auth-other-${suffix}@example.test` } }),
-      db.user.create({ data: { email: `auth-platform-${suffix}@example.test`, platformRole: 'ADMIN' } }),
-    ]);
-    createdUserIds.push(admin.id, manager.id, staff.id, otherAdmin.id, platformAdmin.id);
-
-    const [organization, otherOrganization] = await Promise.all([
-      db.organization.create({ data: { slug: `auth-a-${suffix}`, name: 'Authorization A', kind: 'HOTEL' } }),
-      db.organization.create({ data: { slug: `auth-b-${suffix}`, name: 'Authorization B', kind: 'HOTEL' } }),
-    ]);
-    createdOrganizationIds.push(organization.id, otherOrganization.id);
-
-    const [adminMembership, managerMembership, staffMembership, otherMembership] = await Promise.all([
-      db.organizationMembership.create({ data: { organizationId: organization.id, userId: admin.id, role: 'ADMIN' } }),
-      db.organizationMembership.create({ data: { organizationId: organization.id, userId: manager.id, role: 'MANAGER' } }),
-      db.organizationMembership.create({ data: { organizationId: organization.id, userId: staff.id, role: 'STAFF' } }),
-      db.organizationMembership.create({ data: { organizationId: otherOrganization.id, userId: otherAdmin.id, role: 'ADMIN' } }),
-    ]);
+    const admin = await db.user.create({ data: { id: createdUserIds[0], email: `auth-admin-${suffix}@example.test` } });
+    const manager = await db.user.create({ data: { id: createdUserIds[1], email: `auth-manager-${suffix}@example.test` } });
+    const staff = await db.user.create({ data: { id: createdUserIds[2], email: `auth-staff-${suffix}@example.test` } });
+    const otherAdmin = await db.user.create({ data: { id: createdUserIds[3], email: `auth-other-${suffix}@example.test` } });
+    const platformAdmin = await db.user.create({ data: { id: createdUserIds[4], email: `auth-platform-${suffix}@example.test`, platformRole: 'ADMIN' } });
+    const organization = await db.organization.create({ data: { id: createdOrganizationIds[0], slug: `auth-a-${suffix}`, name: 'Authorization A', kind: 'HOTEL' } });
+    const otherOrganization = await db.organization.create({ data: { id: createdOrganizationIds[1], slug: `auth-b-${suffix}`, name: 'Authorization B', kind: 'HOTEL' } });
+    // Sequential setup prevents teardown racing unfinished parallel inserts.
+    const adminMembership = await db.organizationMembership.create({ data: { organizationId: organization.id, userId: admin.id, role: 'ADMIN' } });
+    const managerMembership = await db.organizationMembership.create({ data: { organizationId: organization.id, userId: manager.id, role: 'MANAGER' } });
+    const staffMembership = await db.organizationMembership.create({ data: { organizationId: organization.id, userId: staff.id, role: 'STAFF' } });
+    const otherMembership = await db.organizationMembership.create({ data: { organizationId: otherOrganization.id, userId: otherAdmin.id, role: 'ADMIN' } });
 
     assert.equal((await authorization.readOrganizationAuthorization({ organizationId: organization.id, userId: admin.id }))?.role, 'ADMIN');
     assert.equal((await authorization.readOrganizationAuthorization({ organizationId: organization.id, userId: platformAdmin.id }))?.platformAdmin, true);
@@ -114,14 +106,17 @@ test('authorization services enforce tenant scope, least privilege, audit writes
     ]);
     assert.equal(auditEvents.every((event) => Boolean(event.actorUserId && event.resourceId)), true);
   } finally {
-    if (createdOrganizationIds.length > 0) await db.auditEvent.deleteMany({ where: { organizationId: { in: createdOrganizationIds } } });
-    if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
-      await db.organizationMembership.deleteMany({
-        where: { OR: [{ organizationId: { in: createdOrganizationIds } }, { userId: { in: createdUserIds } }] },
-      });
+    try {
+      if (createdOrganizationIds.length > 0) await db.auditEvent.deleteMany({ where: { organizationId: { in: createdOrganizationIds } } });
+      if (createdOrganizationIds.length > 0 || createdUserIds.length > 0) {
+        await db.organizationMembership.deleteMany({
+          where: { OR: [{ organizationId: { in: createdOrganizationIds } }, { userId: { in: createdUserIds } }] },
+        });
+      }
+      if (createdOrganizationIds.length > 0) await db.organization.deleteMany({ where: { id: { in: createdOrganizationIds } } });
+      if (createdUserIds.length > 0) await db.user.deleteMany({ where: { id: { in: createdUserIds } } });
+    } finally {
+      await db.$disconnect();
     }
-    if (createdOrganizationIds.length > 0) await db.organization.deleteMany({ where: { id: { in: createdOrganizationIds } } });
-    if (createdUserIds.length > 0) await db.user.deleteMany({ where: { id: { in: createdUserIds } } });
-    await db.$disconnect();
   }
 });

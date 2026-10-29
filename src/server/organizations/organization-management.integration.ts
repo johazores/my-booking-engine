@@ -15,17 +15,16 @@ test('organization settings and archival enforce permission, tenant scope, audit
   ]);
 
   const runId = crypto.randomUUID();
-  const admin = await db.user.create({ data: { email: `organization-admin-${runId}@example.test`, status: 'ACTIVE' } });
-  const outsider = await db.user.create({ data: { email: `organization-outsider-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminId = crypto.randomUUID();
+  const outsiderId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
   const slug = `org-${runId}`.slice(0, 63);
-  const organization = await db.organization.create({
-    data: { name: 'Organization Management Test', slug, kind: 'OTHER', timezone: 'UTC', currency: 'USD' },
-  });
-  await db.organizationMembership.create({
-    data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
-  });
-
   try {
+    const admin = await db.user.create({ data: { id: adminId, email: `organization-admin-${runId}@example.test`, status: 'ACTIVE' } });
+    const outsider = await db.user.create({ data: { id: outsiderId, email: `organization-outsider-${runId}@example.test`, status: 'ACTIVE' } });
+    const organization = await db.organization.create({ data: { id: organizationId, name: 'Organization Management Test', slug, kind: 'OTHER', timezone: 'UTC', currency: 'USD' } });
+    await db.organizationMembership.create({ data: { organizationId, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' } });
+
     await assert.rejects(
       management.updateOrganizationSettings({
         organizationId: organization.id,
@@ -88,9 +87,13 @@ test('organization settings and archival enforce permission, tenant scope, audit
     });
     assert.equal(activeMembershipAccess, null);
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.deleteMany({ where: { id: organization.id } });
-    await db.user.deleteMany({ where: { id: { in: [admin.id, outsider.id] } } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId } });
+      await db.organizationMembership.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      await db.user.deleteMany({ where: { id: { in: [adminId, outsiderId] } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });
