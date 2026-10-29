@@ -21,6 +21,7 @@ for (const [path, users, organizations] of suites) {
     const cleanup = source.slice(cleanupStart, registration);
     assert.match(cleanup, /if \(fixturesCleaned\) return;/);
     assert.match(cleanup, /fixturesCleaned = true;/);
+    assert.match(cleanup, /try \{[\s\S]*fixturesCleaned = true;\s*\} finally \{\s*await db\.\$disconnect\(\);\s*\}/);
     assert.match(source, /finally \{\s*await cleanupFixtures\(\);/);
     assert.match(cleanup, /db\.organization\.deleteMany/);
     assert.doesNotMatch(cleanup, /TRUNCATE|session_replication_role|DISABLE TRIGGER/i);

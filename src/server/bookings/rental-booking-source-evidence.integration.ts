@@ -24,20 +24,24 @@ test('confirmed rental bookings retain immutable source-hold evidence', async (t
   let fixturesCleaned = false;
   async function cleanupFixtures() {
     if (fixturesCleaned) return;
-    await db.$transaction(async (transaction) => {
-      await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId } });
-      await transaction.auditEvent.deleteMany({ where: { organizationId } });
-      await transaction.rentalBooking.deleteMany({ where: { organizationId } });
-      await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId } });
-    });
-    await db.rentalUnit.deleteMany({ where: { organizationId } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId } });
-    await db.rentalLocation.deleteMany({ where: { organizationId } });
-    await db.customer.deleteMany({ where: { organizationId } });
-    await db.organizationMembership.deleteMany({ where: { organizationId } });
-    await db.organization.deleteMany({ where: { id: organizationId } });
-    await db.user.deleteMany({ where: { id: adminId } });
-    fixturesCleaned = true;
+    try {
+      await db.$transaction(async (transaction) => {
+        await transaction.rentalBookingAllocation.deleteMany({ where: { organizationId } });
+        await transaction.auditEvent.deleteMany({ where: { organizationId } });
+        await transaction.rentalBooking.deleteMany({ where: { organizationId } });
+        await transaction.rentalAvailabilityHold.deleteMany({ where: { organizationId } });
+      });
+      await db.rentalUnit.deleteMany({ where: { organizationId } });
+      await db.rentalUnitType.deleteMany({ where: { organizationId } });
+      await db.rentalLocation.deleteMany({ where: { organizationId } });
+      await db.customer.deleteMany({ where: { organizationId } });
+      await db.organizationMembership.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      await db.user.deleteMany({ where: { id: adminId } });
+      fixturesCleaned = true;
+    } finally {
+      await db.$disconnect();
+    }
   }
   t.after(cleanupFixtures);
   // Keep live availability scenarios in the future, anchored to PostgreSQL time.

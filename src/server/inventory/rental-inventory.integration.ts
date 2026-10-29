@@ -24,16 +24,20 @@ test('rental inventory enforces tenant scope, permissions, location ownership, c
   let fixturesCleaned = false;
   async function cleanupFixtures() {
     if (fixturesCleaned) return;
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.rentalAvailabilityBlock.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.rentalRatePeriod.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.rentalUnit.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.rentalLocation.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminAId, staffUserAId, adminBId] } } });
-    fixturesCleaned = true;
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.rentalAvailabilityBlock.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.rentalRatePeriod.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.rentalUnit.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.rentalLocation.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.rentalUnitType.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+      await db.user.deleteMany({ where: { id: { in: [adminAId, staffUserAId, adminBId] } } });
+      fixturesCleaned = true;
+    } finally {
+      await db.$disconnect();
+    }
   }
   t.after(cleanupFixtures);
   // Keep live availability scenarios in the future, anchored to PostgreSQL time.

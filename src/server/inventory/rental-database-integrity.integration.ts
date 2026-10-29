@@ -15,11 +15,15 @@ test('rental database rejects orphan tenant roots and impossible archive state',
   let fixturesCleaned = false;
   async function cleanupFixtures() {
     if (fixturesCleaned) return;
-    await db.rentalUnit.deleteMany({ where: { organizationId } });
-    await db.rentalLocation.deleteMany({ where: { organizationId } });
-    await db.rentalUnitType.deleteMany({ where: { organizationId } });
-    await db.organization.deleteMany({ where: { id: organizationId } });
-    fixturesCleaned = true;
+    try {
+      await db.rentalUnit.deleteMany({ where: { organizationId } });
+      await db.rentalLocation.deleteMany({ where: { organizationId } });
+      await db.rentalUnitType.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      fixturesCleaned = true;
+    } finally {
+      await db.$disconnect();
+    }
   }
   t.after(cleanupFixtures);
   const organization = await db.organization.create({
