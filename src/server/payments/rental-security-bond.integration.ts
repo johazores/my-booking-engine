@@ -265,7 +265,9 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     SELECT t.tgenabled::text AS "enabled"
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
-     WHERE c.relname = 'rental_security_bond_forfeitures'
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = current_schema()
+       AND c.relname = 'rental_security_bond_forfeitures'
        AND t.tgname = 'rental_security_bond_forfeitures_chronology_guard'
        AND NOT t.tgisinternal
   `;
@@ -276,7 +278,9 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     SELECT t.tgname AS "name", t.tgenabled::text AS "enabled"
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
-     WHERE (
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = current_schema()
+       AND (
        (c.relname = 'rental_security_bond_transactions' AND t.tgname = 'rental_security_bond_transactions_forfeiture_guard')
        OR (c.relname = 'rental_damage_settlement_transactions' AND t.tgname = 'rental_damage_settlement_transactions_bond_forfeiture_guard')
      ) AND NOT t.tgisinternal

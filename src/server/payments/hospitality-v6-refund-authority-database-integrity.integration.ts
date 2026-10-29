@@ -89,7 +89,9 @@ test('schema-version-6 refund-authority constraint is installed and validated', 
            pg_get_constraintdef(constraint_row.oid) AS definition
       FROM pg_constraint constraint_row
       JOIN pg_class relation_row ON relation_row.oid = constraint_row.conrelid
-     WHERE constraint_row.conname = 'hospitality_adj_notes_v6_refund_authorities_check'
+      JOIN pg_namespace namespace_row ON namespace_row.oid = relation_row.relnamespace
+     WHERE namespace_row.nspname = current_schema()
+       AND constraint_row.conname = 'hospitality_adj_notes_v6_refund_authorities_check'
        AND relation_row.relname = 'hospitality_issued_adjustment_notes'
   `;
 

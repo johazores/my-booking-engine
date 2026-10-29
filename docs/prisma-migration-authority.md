@@ -39,6 +39,12 @@ npm run validate
 
 GitHub Actions are intentionally not used for this validation.
 
+## PostgreSQL catalog verification scope
+
+The guarded commercial-settlement, Australian refund-authority, and rental security-bond integration suites now resolve catalog objects in `current_schema()` rather than accepting same-named tables, triggers, or constraints from another schema. Commercial-settlement trigger checks additionally verify the expected owning table, enabled ordinary-write state, handler identity, and zero-argument PostgreSQL trigger-function signature. This closes a false-positive path in migration verification without modifying production tables or constraints. The Stripe reference catalog suite already resolves its table with `to_regclass('payment_transactions')` in the active schema.
+
+`scripts/database-catalog-authority-scope-contract.test.mjs` protects these source-level assertions. They remain **unexecuted against PostgreSQL** until the guarded Node 24 disposable-database run succeeds; source checks do not establish that any migration or trigger is installed.
+
 ## Stripe refund reference database integrity
 
 `prisma/migrations/20261028082500-stripe-refund-reference-uniqueness/migration.sql` adds a PostgreSQL-only partial unique index for exact Stripe `re_`-prefixed provider references per organization. The predicate uses `left("providerReference", 3) = 're_'`, not SQL `LIKE 're_%'` (where `_` would be a wildcard). It covers every payment kind and status; `pi_*` authorization/capture references remain shareable within their legitimate booking source. The existing Prisma normal lookup index remains in place. A preflight fails migration when historical duplicate refund references exist and does not rewrite evidence.
