@@ -22,8 +22,6 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
   const todayUtc = new Date();
   const arrivalDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 90));
   const departureDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 92));
-  const arrivalDateLocal = arrivalDate.toISOString().slice(0, 10);
-  const departureDateLocal = departureDate.toISOString().slice(0, 10);
   const organizationId = crypto.randomUUID();
   let cleanupStarted = false;
   async function cleanupFixtures() {
