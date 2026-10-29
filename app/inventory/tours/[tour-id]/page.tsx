@@ -34,6 +34,22 @@ function formatLocalDateTime(date: Date, timezone: string) {
   }).format(date);
 }
 
+function formatDepartureExample(timezone: string, hour: number) {
+  // Build a future local date and its actual UTC offset for the product timezone.
+  const future = new Date(Date.now() + 30 * 86_400_000);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZoneName: 'longOffset',
+  }).formatToParts(future);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? '';
+  const zone = part('timeZoneName');
+  const offset = zone === 'GMT' ? 'Z' : zone.replace(/^GMT/, '');
+  return `${part('year')}-${part('month')}-${part('day')}T${String(hour).padStart(2, '0')}:00:00${offset}`;
+}
+
 function detailHref(input: {
   tourProductId: string;
   departurePage: number;
@@ -106,6 +122,8 @@ export default async function TourInventoryDetailPage({
   }
   const { product, departureResult, addonResult } = detail;
   const isActive = product.status === 'ACTIVE';
+  const startExample = formatDepartureExample(product.timezone, 8);
+  const endExample = formatDepartureExample(product.timezone, 17);
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header">
@@ -165,10 +183,10 @@ export default async function TourInventoryDetailPage({
     {canManage && isActive ? <div className="sf-inventory-layout">
       <section className="sf-inventory-card sf-inventory-card--create">
         <p className="sf-eyebrow">New departure</p><h2>Schedule capacity</h2>
-        <p>Use an RFC 3339 timestamp with an explicit offset, for example <code>2026-10-05T08:00:00+08:00</code>. The product timezone is {product.timezone}.</p>
+        <p>Use an RFC 3339 timestamp with an explicit offset, for example <code>{startExample}</code>. The product timezone is {product.timezone}.</p>
         <form className="sf-form" action={`/api/inventory/tours/${product.id}/departures`} method="post">
-          <label className="sf-field">Starts at<input name="startsAt" maxLength={40} required placeholder="2026-10-05T08:00:00+08:00" /></label>
-          <label className="sf-field">Ends at<input name="endsAt" maxLength={40} required placeholder="2026-10-05T17:00:00+08:00" /></label>
+          <label className="sf-field">Starts at<input name="startsAt" maxLength={40} required placeholder={startExample} /></label>
+          <label className="sf-field">Ends at<input name="endsAt" maxLength={40} required placeholder={endExample} /></label>
           <label className="sf-field">Capacity<input name="capacity" type="number" min={1} max={10000} step={1} required /></label>
           <button className="sf-button sf-button--primary" type="submit">Create departure</button>
         </form>

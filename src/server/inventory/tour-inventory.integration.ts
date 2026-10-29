@@ -19,6 +19,11 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
   const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
 
   try {
+    const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const day = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30)).toISOString().slice(0, 10);
+    const start = `${day}T08:00:00+08:00`;
+    const end = `${day}T12:00:00+08:00`;
+    const conflictingEnd = `${day}T13:00:00+08:00`;
     const adminA = await db.user.create({ data: { id: userIds[0], email: `tour-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
     const staffA = await db.user.create({ data: { id: userIds[1], email: `tour-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
     const adminB = await db.user.create({ data: { id: userIds[2], email: `tour-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -68,7 +73,7 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
         organizationId: organizationA.id,
         actorUserId: adminA.id,
         tourProductId: productB.id,
-        departure: { startsAt: '2026-10-05T08:00:00+08:00', endsAt: '2026-10-05T12:00:00+08:00', capacity: '12' },
+        departure: { startsAt: start, endsAt: end, capacity: '12' },
       }),
       /not active in this organization/i,
     );
@@ -77,7 +82,7 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
       organizationId: organizationA.id,
       actorUserId: adminA.id,
       tourProductId: productA.id,
-      departure: { startsAt: '2026-10-05T08:00:00+08:00', endsAt: '2026-10-05T12:00:00+08:00', capacity: '12' },
+      departure: { startsAt: start, endsAt: end, capacity: '12' },
     });
     const addon = await tours.createTourAddon({
       organizationId: organizationA.id,
@@ -99,7 +104,7 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
         organizationId: organizationA.id,
         actorUserId: adminA.id,
         tourProductId: productA.id,
-        departure: { startsAt: '2026-10-05T08:00:00+08:00', endsAt: '2026-10-05T13:00:00+08:00', capacity: '20' },
+        departure: { startsAt: start, endsAt: conflictingEnd, capacity: '20' },
       }),
       /departure already exists/i,
     );

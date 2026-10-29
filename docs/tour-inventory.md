@@ -45,6 +45,8 @@ All potentially growing tour collections are bounded with the existing inventory
 
 The pages reuse SF native CSS/design-token components and existing inventory authorization. Empty, permission-denied, validation, conflict, dependency, success, and archived states are explicit. No dead booking or pricing action is exposed.
 
+The departure creation form now shows a future RFC 3339 example calculated for the actual product IANA timezone, including its offset on the example date, rather than a stale hardcoded October 2026 timestamp. The guarded tour PostgreSQL integration suite also derives its duplicate-departure test instants from the PostgreSQL clock, preserving the original same-start conflict across calendar rollovers. `scripts/tour-departure-date-contract.test.mjs` guards these source-level contracts; live database execution remains pending.
+
 ## Validation and remaining work
 
 Dependency-free domain coverage validates product normalization, exact-offset schedules, capacity bounds, add-on bounds, and archive confirmation. A source-contract suite covers tenant/database relationships, permission guards, serializable/audited writes, real route wiring, bounded collection reads, and the no-fake-pricing boundary. A guarded PostgreSQL integration scenario is included in `npm run test:database` for permission, Tenant A/Tenant B isolation, uniqueness, dependency-safe archival, and audit behavior.
