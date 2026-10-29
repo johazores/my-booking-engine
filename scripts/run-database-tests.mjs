@@ -4,6 +4,7 @@ import { assertRequiredDatabaseIntegrationTests, discoverDatabaseIntegrationTest
 
 import { validateDisposableTestDatabase } from './database-test-safety.mjs';
 import { assertSupportedDatabaseTestRuntime } from './database-test-runtime.mjs';
+import { verifyDisposableDatabaseSession } from './database-test-session.mjs';
 import { assertNoDotenvConfigurationOverrides, assertNoPostgresConnectionOverrides, readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
 
 assertSupportedDatabaseTestRuntime();
@@ -92,6 +93,8 @@ const requiredDatabaseIntegrationTests = [
 
 const discoveredDatabaseIntegrationTests = discoverDatabaseIntegrationTests();
 assertRequiredDatabaseIntegrationTests(requiredDatabaseIntegrationTests, discoveredDatabaseIntegrationTests);
+// Read-only connection verification must precede Prisma schema and migration commands.
+await verifyDisposableDatabaseSession(testDatabaseUrl);
 run(npmCommand, ['run', 'prisma:validate']);
 run(npmCommand, ['run', 'prisma:generate']);
 run(npmCommand, ['run', 'db:deploy']);

@@ -286,3 +286,23 @@ test('rejects URL session options that could alter database integrity behavior',
     'postgresql://localhost:5432/sf_test?application_name=sf-tests',
   );
 });
+
+test('disposable database schema must be public and unambiguous', () => {
+  for (const query of ['schema=private', 'schema=', 'SCHEMA=tenant', '%73chema=tenant', 'schema=PUBLIC', 'schema=public&schema=private', 'schema=public&SCHEMA=public']) {
+    assert.throws(() => validateDisposableTestDatabase({
+      ...validInput,
+      testDatabaseUrl: `postgresql://localhost:5432/sf_test?${query}`,
+    }), /unambiguous public PostgreSQL schema/, query);
+  }
+  assert.equal(validateDisposableTestDatabase({
+    ...validInput,
+    testDatabaseUrl: 'postgresql://localhost:5432/sf_test?schema=public',
+  }), 'postgresql://localhost:5432/sf_test?schema=public');
+});
+
+test('application schema differences do not bypass same-database separation', () => {
+  assert.throws(() => validateDisposableTestDatabase({
+    ...validInput,
+    applicationDatabaseUrl: 'postgresql://localhost:5432/sf_test?schema=private',
+  }), /different PostgreSQL database from DATABASE_URL/);
+});

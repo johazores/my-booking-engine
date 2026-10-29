@@ -72,6 +72,16 @@ function parsePostgresDatabaseTarget(value, variableName, pgPort) {
     throw new Error(`${variableName} must not set PostgreSQL session options in URL parameters for database integration tests.`);
   }
 
+  // Prisma's schema URL option can diverge from pg's current_schema() used
+  // by raw migration/catalog assertions. Keep the disposable run on public.
+  if (variableName === 'TEST_DATABASE_URL') {
+    const schemas = [...parsedUrl.searchParams.entries()]
+      .filter(([name]) => name.toLowerCase() === 'schema');
+    if (schemas.length > 1 || (schemas.length === 1 && schemas[0][1] !== 'public')) {
+      throw new Error('TEST_DATABASE_URL must use an unambiguous public PostgreSQL schema for database integration tests.');
+    }
+  }
+
   if (!parsedUrl.hostname) {
     throw new Error(`${variableName} must specify an explicit PostgreSQL hostname.`);
   }
