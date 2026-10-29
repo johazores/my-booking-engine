@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier confirmation evidence integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('supplier confirmation recovery evidence stays ambiguous until provider truth is established', async () => {
+test('supplier confirmation recovery evidence stays ambiguous until provider truth is established', async (t) => {
   const [{ db }, reservations, recovery] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
@@ -16,11 +16,38 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep supplier reservation fixtures in the future without local-time or DST drift.
+  const todayUtc = new Date();
+  const arrivalDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 90));
+  const departureDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 92));
+  const arrivalDateLocal = arrivalDate.toISOString().slice(0, 10);
+  const departureDateLocal = departureDate.toISOString().slice(0, 10);
+  const adminId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  let cleanupStarted = false;
+  async function cleanupFixtures() {
+    if (cleanupStarted) return;
+    cleanupStarted = true;
+    try {
+      await db.hospitalitySupplierReservationAttempt.deleteMany({ where: { organizationId } });
+      await db.hospitalitySupplierReservationOperation.deleteMany({ where: { organizationId } });
+      await db.auditEvent.deleteMany({ where: { organizationId } });
+      await db.integration.deleteMany({ where: { organizationId } });
+      await db.organizationMembership.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      await db.user.deleteMany({ where: { id: adminId } });
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  // Register teardown before the first insert so partially created fixtures are removed.
+  t.after(cleanupFixtures);
   const admin = await db.user.create({
-    data: { email: `supplier-confirmation-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: adminId, email: `supplier-confirmation-${runId}@example.test`, status: 'ACTIVE' },
   });
   const organization = await db.organization.create({
     data: {
+      id: organizationId,
       name: 'Supplier Confirmation Evidence Tenant',
       slug: `supplier-confirmation-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -57,8 +84,8 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
     reservationPayloadFingerprint: 'd'.repeat(64),
     currency: 'USD',
     expectedTotalMinor: 42_500n,
-    arrivalDateLocal: '2026-11-10',
-    departureDateLocal: '2026-11-12',
+    arrivalDateLocal: arrivalDateLocal,
+    departureDateLocal: departureDateLocal,
     rooms: 1,
     adults: 2,
     childAges: [],
@@ -339,12 +366,6 @@ test('supplier confirmation recovery evidence stays ambiguous until provider tru
     assert.equal(retryable.providerReservationReference, null);
     assert.equal(retryable.supplierConfirmationReference, null);
   } finally {
-    await db.hospitalitySupplierReservationAttempt.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalitySupplierReservationOperation.deleteMany({ where: { organizationId: organization.id } });
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.integration.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.delete({ where: { id: organization.id } });
-    await db.user.delete({ where: { id: admin.id } });
+    await cleanupFixtures();
   }
 });

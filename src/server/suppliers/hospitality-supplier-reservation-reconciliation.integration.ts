@@ -10,7 +10,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier reservation reconciliation integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('supplier reconciliation preserves known locator authority and durable supplier confirmation evidence', async () => {
+test('supplier reconciliation preserves known locator authority and durable supplier confirmation evidence', async (t) => {
   const [{ db }, reservations, recovery, reconciliation] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
@@ -19,14 +19,57 @@ test('supplier reconciliation preserves known locator authority and durable supp
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep supplier reservation fixtures in the future without local-time or DST drift.
+  const todayUtc = new Date();
+  const arrivalDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 90));
+  const departureDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 93));
+  const arrivalDateLocal = arrivalDate.toISOString().slice(0, 10);
+  const departureDateLocal = departureDate.toISOString().slice(0, 10);
+  const tenantAAdminId = crypto.randomUUID();
+  const tenantBAdminId = crypto.randomUUID();
+  const tenantAId = crypto.randomUUID();
+  const tenantBId = crypto.randomUUID();
+  let cleanupStarted = false;
+  async function cleanupFixtures() {
+    if (cleanupStarted) return;
+    cleanupStarted = true;
+    try {
+      await db.hospitalitySupplierReservationAttempt.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.hospitalitySupplierReservationOperation.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.auditEvent.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.integration.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.organizationMembership.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.organization.deleteMany({
+        where: { id: { in: [tenantAId, tenantBId] } },
+      });
+      await db.user.deleteMany({
+        where: { id: { in: [tenantAAdminId, tenantBAdminId] } },
+      });
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  // Register teardown before the first insert so partially created fixtures are removed.
+  t.after(cleanupFixtures);
   const tenantAAdmin = await db.user.create({
-    data: { email: `supplier-reconcile-a-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: tenantAAdminId, email: `supplier-reconcile-a-${runId}@example.test`, status: 'ACTIVE' },
   });
   const tenantBAdmin = await db.user.create({
-    data: { email: `supplier-reconcile-b-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: tenantBAdminId, email: `supplier-reconcile-b-${runId}@example.test`, status: 'ACTIVE' },
   });
   const tenantA = await db.organization.create({
     data: {
+      id: tenantAId,
       name: 'Supplier Reconcile Tenant A',
       slug: `supplier-reconcile-a-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -36,6 +79,7 @@ test('supplier reconciliation preserves known locator authority and durable supp
   });
   const tenantB = await db.organization.create({
     data: {
+      id: tenantBId,
       name: 'Supplier Reconcile Tenant B',
       slug: `supplier-reconcile-b-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -78,8 +122,8 @@ test('supplier reconciliation preserves known locator authority and durable supp
         reservationPayloadFingerprint: fingerprintCounter.toString(16).padStart(64, 'd').slice(-64),
         currency: 'USD',
         expectedTotalMinor: 125_500n,
-        arrivalDateLocal: '2026-10-10',
-        departureDateLocal: '2026-10-13',
+        arrivalDateLocal: arrivalDateLocal,
+        departureDateLocal: departureDateLocal,
         rooms: 1,
         adults: 2,
         childAges: [7],
@@ -321,26 +365,6 @@ test('supplier reconciliation preserves known locator authority and durable supp
       'AMBIGUOUS',
     );
   } finally {
-    await db.hospitalitySupplierReservationAttempt.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.hospitalitySupplierReservationOperation.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.auditEvent.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.integration.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.organizationMembership.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.organization.deleteMany({
-      where: { id: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.user.deleteMany({
-      where: { id: { in: [tenantAAdmin.id, tenantBAdmin.id] } },
-    });
+    await cleanupFixtures();
   }
 });

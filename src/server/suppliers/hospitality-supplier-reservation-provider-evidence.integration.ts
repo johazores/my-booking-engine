@@ -15,11 +15,40 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier provider-evidence integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('supplier attempt provider evidence is enforced by PostgreSQL even when services are bypassed', async () => {
+test('supplier attempt provider evidence is enforced by PostgreSQL even when services are bypassed', async (t) => {
   const { db } = await import('../database.ts');
   const runId = crypto.randomUUID();
+  // Keep supplier reservation fixtures in the future without local-time or DST drift.
+  const todayUtc = new Date();
+  const arrivalDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 90));
+  const departureDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 92));
+  const arrivalDateLocal = arrivalDate.toISOString().slice(0, 10);
+  const departureDateLocal = departureDate.toISOString().slice(0, 10);
+  const organizationId = crypto.randomUUID();
+  let cleanupStarted = false;
+  async function cleanupFixtures() {
+    if (cleanupStarted) return;
+    cleanupStarted = true;
+    try {
+      await db.hospitalitySupplierReservationAttempt.deleteMany({
+        where: { organizationId },
+      });
+      await db.hospitalitySupplierReservationOperation.deleteMany({
+        where: { organizationId },
+      });
+      await db.integration.deleteMany({
+        where: { organizationId },
+      });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  // Register teardown before the first insert so partially created fixtures are removed.
+  t.after(cleanupFixtures);
   const organization = await db.organization.create({
     data: {
+      id: organizationId,
       name: 'Supplier Provider Evidence Tenant',
       slug: `supplier-provider-evidence-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -52,8 +81,8 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
       reservationPayloadFingerprint: 'd'.repeat(64),
       currency: 'USD',
       expectedTotalMinor: 12_500n,
-      arrivalDate: new Date('2026-11-10T00:00:00.000Z'),
-      departureDate: new Date('2026-11-12T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       rooms: 1,
       adults: 2,
       childAges: [],
@@ -233,15 +262,6 @@ test('supplier attempt provider evidence is enforced by PostgreSQL even when ser
     });
     assert.equal(failedRecovery.providerRequestStartedAt, null);
   } finally {
-    await db.hospitalitySupplierReservationAttempt.deleteMany({
-      where: { organizationId: organization.id },
-    });
-    await db.hospitalitySupplierReservationOperation.deleteMany({
-      where: { organizationId: organization.id },
-    });
-    await db.integration.deleteMany({
-      where: { organizationId: organization.id },
-    });
-    await db.organization.delete({ where: { id: organization.id } });
+    await cleanupFixtures();
   }
 });

@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Supplier reservation attempt recovery integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('stale supplier reservation claims distinguish pre-provider recovery from provider ambiguity and remain tenant scoped', async () => {
+test('stale supplier reservation claims distinguish pre-provider recovery from provider ambiguity and remain tenant scoped', async (t) => {
   const [{ db }, reservations, recovery] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-supplier-reservation-service.ts'),
@@ -16,14 +16,53 @@ test('stale supplier reservation claims distinguish pre-provider recovery from p
   ]);
 
   const runId = crypto.randomUUID();
+  // Keep supplier reservation fixtures in the future without local-time or DST drift.
+  const todayUtc = new Date();
+  const arrivalDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 90));
+  const departureDate = new Date(Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth(), todayUtc.getUTCDate() + 92));
+  const arrivalDateLocal = arrivalDate.toISOString().slice(0, 10);
+  const departureDateLocal = departureDate.toISOString().slice(0, 10);
+  const tenantAAdminId = crypto.randomUUID();
+  const tenantBAdminId = crypto.randomUUID();
+  const tenantAId = crypto.randomUUID();
+  const tenantBId = crypto.randomUUID();
+  let cleanupStarted = false;
+  async function cleanupFixtures() {
+    if (cleanupStarted) return;
+    cleanupStarted = true;
+    try {
+      await db.hospitalitySupplierReservationAttempt.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.hospitalitySupplierReservationOperation.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.auditEvent.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.integration.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.organizationMembership.deleteMany({
+        where: { organizationId: { in: [tenantAId, tenantBId] } },
+      });
+      await db.organization.deleteMany({ where: { id: { in: [tenantAId, tenantBId] } } });
+      await db.user.deleteMany({ where: { id: { in: [tenantAAdminId, tenantBAdminId] } } });
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  // Register teardown before the first insert so partially created fixtures are removed.
+  t.after(cleanupFixtures);
   const tenantAAdmin = await db.user.create({
-    data: { email: `supplier-recovery-a-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: tenantAAdminId, email: `supplier-recovery-a-${runId}@example.test`, status: 'ACTIVE' },
   });
   const tenantBAdmin = await db.user.create({
-    data: { email: `supplier-recovery-b-${runId}@example.test`, status: 'ACTIVE' },
+    data: { id: tenantBAdminId, email: `supplier-recovery-b-${runId}@example.test`, status: 'ACTIVE' },
   });
   const tenantA = await db.organization.create({
     data: {
+      id: tenantAId,
       name: 'Supplier Recovery Tenant A',
       slug: `supplier-recovery-a-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -33,6 +72,7 @@ test('stale supplier reservation claims distinguish pre-provider recovery from p
   });
   const tenantB = await db.organization.create({
     data: {
+      id: tenantBId,
       name: 'Supplier Recovery Tenant B',
       slug: `supplier-recovery-b-${runId}`.slice(0, 63),
       kind: 'TRAVEL_AGENCY',
@@ -67,8 +107,8 @@ test('stale supplier reservation claims distinguish pre-provider recovery from p
     reservationPayloadFingerprint: 'd'.repeat(64),
     currency: 'USD',
     expectedTotalMinor: 88_500n,
-    arrivalDateLocal: '2026-11-10',
-    departureDateLocal: '2026-11-12',
+    arrivalDateLocal: arrivalDateLocal,
+    departureDateLocal: departureDateLocal,
     rooms: 1,
     adults: 2,
     childAges: [],
@@ -336,22 +376,6 @@ test('stale supplier reservation claims distinguish pre-provider recovery from p
       ],
     );
   } finally {
-    await db.hospitalitySupplierReservationAttempt.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.hospitalitySupplierReservationOperation.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.auditEvent.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.integration.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.organizationMembership.deleteMany({
-      where: { organizationId: { in: [tenantA.id, tenantB.id] } },
-    });
-    await db.organization.deleteMany({ where: { id: { in: [tenantA.id, tenantB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [tenantAAdmin.id, tenantBAdmin.id] } } });
+    await cleanupFixtures();
   }
 });
