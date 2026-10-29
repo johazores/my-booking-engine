@@ -37,7 +37,13 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const adminA = await db.user.create({ data: { id: adminAId, email: `restriction-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `restriction-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `restriction-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -52,6 +58,8 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
   });
 
   try {
+    const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+    const dateAt = (days: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
     const propertyA = await hospitality.createHospitalityProperty({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -94,7 +102,7 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
       restrictions.createHospitalityRestriction({
         organizationId: organizationA.id,
         actorUserId: staffA.id,
-        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: '', startDate: '2026-12-01', endDate: '2026-12-05', minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
+        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: '', startDate: dateAt(0), endDate: dateAt(4), minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
       }),
       /permission/i,
     );
@@ -102,7 +110,7 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
       restrictions.createHospitalityRestriction({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanB.id, roomTypeId: '', startDate: '2026-12-01', endDate: '2026-12-05', minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
+        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanB.id, roomTypeId: '', startDate: dateAt(0), endDate: dateAt(4), minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
       }),
       /rate plan is not active/i,
     );
@@ -110,7 +118,7 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
       restrictions.createHospitalityRestriction({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: unassignedRoomTypeA.id, startDate: '2026-12-01', endDate: '2026-12-05', minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
+        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: unassignedRoomTypeA.id, startDate: dateAt(0), endDate: dateAt(4), minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
       }),
       /must be active and assigned/i,
     );
@@ -118,19 +126,19 @@ test('hospitality restrictions enforce tenant scope, assignment dependencies, ov
     const propertyRule = await restrictions.createHospitalityRestriction({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: '', startDate: '2026-12-20', endDate: '2026-12-31', minStayNights: '3', maxStayNights: '', closedToArrival: '', closedToDeparture: 'true' },
+      restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: '', startDate: dateAt(20), endDate: dateAt(31), minStayNights: '3', maxStayNights: '', closedToArrival: '', closedToDeparture: 'true' },
     });
     const roomRule = await restrictions.createHospitalityRestriction({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: roomTypeA.id, startDate: '2026-12-20', endDate: '2026-12-31', minStayNights: '', maxStayNights: '7', closedToArrival: 'true', closedToDeparture: '' },
+      restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: roomTypeA.id, startDate: dateAt(20), endDate: dateAt(31), minStayNights: '', maxStayNights: '7', closedToArrival: 'true', closedToDeparture: '' },
     });
 
     await assert.rejects(
       restrictions.createHospitalityRestriction({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: roomTypeA.id, startDate: '2026-12-25', endDate: '2027-01-02', minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
+        restriction: { propertyId: propertyA.id, ratePlanId: ratePlanA.id, roomTypeId: roomTypeA.id, startDate: dateAt(25), endDate: dateAt(33), minStayNights: '2', maxStayNights: '', closedToArrival: '', closedToDeparture: '' },
       }),
       /overlaps/i,
     );

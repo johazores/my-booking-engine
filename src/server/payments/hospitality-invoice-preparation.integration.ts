@@ -61,6 +61,12 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
   ] });
 
   try {
+    const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+    const dateAt = (days: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
+    const arrivalDate = new Date(`${dateAt(0)}T00:00:00.000Z`);
+    const departureDate = new Date(`${dateAt(1)}T00:00:00.000Z`);
+    const expiresAt = new Date(now.getTime() + 3_600_000);
+    const confirmedAt = new Date(now.getTime() + 60_000);
     const issuerInput = {
       legalName: 'Invoice Tenant A Pty Ltd',
       addressLine1: '12 Example Street',
@@ -122,12 +128,12 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
       idempotencyKey: 'invoice-test-hold',
-      arrivalDate: new Date('2026-10-01T00:00:00.000Z'),
-      departureDate: new Date('2026-10-02T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       status: 'CONSUMED',
-      expiresAt: new Date('2026-10-01T01:00:00.000Z'),
-      endedAt: new Date('2026-10-01T00:01:00.000Z'),
+      expiresAt: expiresAt,
+      endedAt: confirmedAt,
     } });
     const fingerprint = 'a'.repeat(64);
     const booking = await db.hospitalityBooking.create({ data: {
@@ -140,8 +146,8 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
       idempotencyKey: 'invoice-test-booking',
       status: 'CONFIRMED',
       paymentStatus: 'UNPAID',
-      arrivalDate: new Date('2026-10-01T00:00:00.000Z'),
-      departureDate: new Date('2026-10-02T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       currency: 'USD',
       accommodationSubtotalMinor: 11000n,
@@ -151,7 +157,7 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
       totalMinor: 12345n,
       pricingFingerprint: fingerprint,
       addonSelections: [],
-      confirmedAt: new Date('2026-10-01T00:01:00.000Z'),
+      confirmedAt: confirmedAt,
     } });
 
 
@@ -159,11 +165,11 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
       propertyId: property.id,
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
-      arrivalDate: '2026-10-01',
-      departureDate: '2026-10-02',
+      arrivalDate: dateAt(0),
+      departureDate: dateAt(1),
       quantity: 1,
       currency: 'USD',
-      nightly: [{ date: '2026-10-01', amountMinor: '11000' }],
+      nightly: [{ date: dateAt(0), amountMinor: '11000' }],
       charges: [
         { id: crypto.randomUUID(), code: 'tax', name: 'Tax', kind: 'TAX', calculation: 'FIXED_PER_BOOKING', amountMinor: '1000' },
         { id: crypto.randomUUID(), code: 'fee', name: 'Fee', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', amountMinor: '345' },

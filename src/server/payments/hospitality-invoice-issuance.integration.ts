@@ -64,6 +64,12 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
   ] });
 
   try {
+    const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+    const dateAt = (days: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
+    const arrivalDate = new Date(`${dateAt(0)}T00:00:00.000Z`);
+    const departureDate = new Date(`${dateAt(1)}T00:00:00.000Z`);
+    const expiresAt = new Date(now.getTime() + 3_600_000);
+    const confirmedAt = new Date(now.getTime() + 60_000);
     const issuerInput = {
       legalName: 'SF Invoice Hotel Pty Ltd',
       addressLine1: '12 Example Street',
@@ -115,12 +121,12 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
       idempotencyKey: `invoice-issue-hold-${runId}`,
-      arrivalDate: new Date('2026-11-01T00:00:00.000Z'),
-      departureDate: new Date('2026-11-02T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       status: 'CONSUMED',
-      expiresAt: new Date('2026-11-01T01:00:00.000Z'),
-      endedAt: new Date('2026-11-01T00:01:00.000Z'),
+      expiresAt: expiresAt,
+      endedAt: confirmedAt,
     } });
     const fingerprint = 'a'.repeat(64);
     const booking = await db.hospitalityBooking.create({ data: {
@@ -133,8 +139,8 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
       idempotencyKey: `invoice-issue-booking-${runId}`,
       status: 'CONFIRMED',
       paymentStatus: 'UNPAID',
-      arrivalDate: new Date('2026-11-01T00:00:00.000Z'),
-      departureDate: new Date('2026-11-02T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       currency: 'AUD',
       accommodationSubtotalMinor: 10000n,
@@ -144,18 +150,18 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
       totalMinor: 11000n,
       pricingFingerprint: fingerprint,
       addonSelections: [],
-      confirmedAt: new Date('2026-11-01T00:01:00.000Z'),
+      confirmedAt: confirmedAt,
     } });
 
     const breakdown = pricingEvidence.createHospitalityBookingPricingEvidenceBreakdown({
       propertyId: property.id,
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
-      arrivalDate: '2026-11-01',
-      departureDate: '2026-11-02',
+      arrivalDate: dateAt(0),
+      departureDate: dateAt(1),
       quantity: 1,
       currency: 'AUD',
-      nightly: [{ date: '2026-11-01', amountMinor: '10000' }],
+      nightly: [{ date: dateAt(0), amountMinor: '10000' }],
       charges: [{
         id: crypto.randomUUID(),
         code: 'GST',

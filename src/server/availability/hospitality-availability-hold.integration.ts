@@ -36,7 +36,13 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const adminA = await db.user.create({ data: { id: adminAId, email: `hold-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `hold-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `hold-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -54,8 +60,9 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
     const room = await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
     await db.hospitalityRoomTypeRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id } });
-    const now = new Date('2026-09-01T00:00:00.000Z');
-    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
+    const [{ now }] = await db.$queryRaw<{ now: Date }[]>`SELECT clock_timestamp() AS now`;
+    const dateAt = (days: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
+    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(0), departureDate: dateAt(2), quantity: 1 };
 
     await assert.rejects(
       holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: staffA.id, now, hold: { idempotencyKey: 'hold:staff-denied', request } }),
@@ -85,7 +92,7 @@ test('hospitality holds are tenant-safe, idempotent, expiry-aware, and serialize
     assert.equal(heldAvailability.available, false);
 
     await assert.rejects(
-      windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, now, window: { propertyId: property.id, roomTypeId: roomType.id, startDate: '2026-09-10', endDate: '2026-09-11', capacityLimit: 0 } }),
+      windows.createHospitalityAvailabilityWindow({ organizationId: organizationA.id, actorUserId: adminA.id, now, window: { propertyId: property.id, roomTypeId: roomType.id, startDate: dateAt(0), endDate: dateAt(1), capacityLimit: 0 } }),
       /protected by active holds/i,
     );
     await assert.rejects(

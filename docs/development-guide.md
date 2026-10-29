@@ -107,6 +107,8 @@ The three hospitality pricing PostgreSQL integration suites (base rates, charges
 
 The original hospitality booking confirmation/cancellation integration suite now uses PostgreSQL-relative future rate/stay dates and a consistent database-clock timeline for hold confirmation, cancellation, and idempotent cancellation replay. The manual/offline payment integration suite also uses future PostgreSQL-relative stay dates and a consistent hold expiry, consumption, and booking confirmation timeline, avoiding invalid expired fixture evidence. `scripts/booking-payment-database-date-contract.test.mjs` guards these date contracts and calendar rollovers. These are source-level safeguards pending live PostgreSQL validation.
 
+The hospitality availability, availability-hold, restriction, invoice-preparation, and invoice-issuance PostgreSQL suites now anchor their date windows to PostgreSQL `clock_timestamp()` with UTC calendar-day offsets. Availability and restriction scenarios preserve their original overlap and minimum-stay relationships without expired 2026 windows; the hold suite uses a real database-clock expiry baseline instead of a past simulated `now`. Invoice fixtures keep stay, immutable pricing breakdown, hold expiry/consumption, and booking confirmation evidence on one consistent relative timeline. Availability, hold, and restriction suites also disconnect Prisma in an after-hook `finally`, including when fixture teardown fails. `scripts/hospitality-availability-invoice-fixture-dates-contract.test.mjs` guards these source-level contracts and calendar rollover, but cannot replace Node 24/disposable PostgreSQL execution.
+
 ## Validation
 
 Before considering a coherent slice complete, run the relevant available checks:
