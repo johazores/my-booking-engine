@@ -34,7 +34,17 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
     await db.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
+  // Anchor fixture stays to the PostgreSQL clock, not an expiring calendar month.
+  const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  const dateAt = (days: number) =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
   const admin = await db.user.create({ data: { id: adminId, email: `charge-admin-${runId}@example.test`, status: 'ACTIVE' } });
   const staff = await db.user.create({ data: { id: staffId, email: `charge-staff-${runId}@example.test`, status: 'ACTIVE' } });
   const outsider = await db.user.create({ data: { id: outsiderId, email: `charge-outsider-${runId}@example.test`, status: 'ACTIVE' } });
@@ -51,17 +61,17 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
   await inventory.assignHospitalityRatePlanToRoomType({ organizationId: organization.id, actorUserId: admin.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id });
 
   try {
-    const baseRate = await pricing.createHospitalityBaseRate({ organizationId: organization.id, actorUserId: admin.id, baseRate: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, startDate: '2026-09-01', endDate: '2026-09-30', amount: '1000.00' } });
-    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: staff.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '12', startDate: '2026-09-01', endDate: '2026-09-30' } }), /permission/i);
+    const baseRate = await pricing.createHospitalityBaseRate({ organizationId: organization.id, actorUserId: admin.id, baseRate: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, startDate: dateAt(0), endDate: dateAt(29), amount: '1000.00' } });
+    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: staff.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '12', startDate: dateAt(0), endDate: dateAt(29) } }), /permission/i);
 
-    const vat = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '12', startDate: '2026-09-01', endDate: '2026-09-30' } });
-    const fee = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Resort fee', code: 'RESORT', kind: 'FEE', calculation: 'FIXED_PER_ROOM_NIGHT', value: '100.00', startDate: '2026-09-01', endDate: '2026-09-30' } });
-    const bookingFee = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Booking fee', code: 'BOOKING', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '25.00', startDate: '2026-09-01', endDate: '2026-09-30' } });
-    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Duplicate VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '5', startDate: '2026-09-10', endDate: '2026-09-20' } }), /overlaps/i);
+    const vat = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '12', startDate: dateAt(0), endDate: dateAt(29) } });
+    const fee = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Resort fee', code: 'RESORT', kind: 'FEE', calculation: 'FIXED_PER_ROOM_NIGHT', value: '100.00', startDate: dateAt(0), endDate: dateAt(29) } });
+    const bookingFee = await charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Booking fee', code: 'BOOKING', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '25.00', startDate: dateAt(0), endDate: dateAt(29) } });
+    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Duplicate VAT', code: 'VAT', kind: 'TAX', calculation: 'PERCENTAGE', value: '5', startDate: dateAt(9), endDate: dateAt(19) } }), /overlaps/i);
 
     const concurrent = await Promise.allSettled([
-      charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'City levy', code: 'CITY', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '50.00', startDate: '2026-10-01', endDate: '2026-10-31' } }),
-      charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Scoped city levy', code: 'CITY', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '40.00', startDate: '2026-10-10', endDate: '2026-10-20' } }),
+      charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'City levy', code: 'CITY', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '50.00', startDate: dateAt(30), endDate: dateAt(60) } }),
+      charges.createHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, rule: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Scoped city levy', code: 'CITY', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '40.00', startDate: dateAt(39), endDate: dateAt(49) } }),
     ]);
     assert.equal(concurrent.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(concurrent.filter((result) => result.status === 'rejected').length, 1);
@@ -70,13 +80,13 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
 
     const otherTenantView = await charges.listHospitalityChargeRules({ organizationId: otherOrganization.id, actorUserId: outsider.id, propertyId: property.id, page: 1, pageSize: 20 });
     assert.equal(otherTenantView.total, 0);
-    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: otherOrganization.id, actorUserId: outsider.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Cross tenant', code: 'CROSS', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '1.00', startDate: '2026-09-01', endDate: '2026-09-30' } }), /active property/i);
+    await assert.rejects(charges.createHospitalityChargeRule({ organizationId: otherOrganization.id, actorUserId: outsider.id, rule: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Cross tenant', code: 'CROSS', kind: 'FEE', calculation: 'FIXED_PER_BOOKING', value: '1.00', startDate: dateAt(0), endDate: dateAt(29) } }), /active property/i);
 
-    const baseQuote = await pricing.quoteHospitalityBasePrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: '2' } });
-    const unchangedBase = await pricing.revalidateHospitalityBasePrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: '2' }, expectedFingerprint: baseQuote.fingerprint });
+    const baseQuote = await pricing.quoteHospitalityBasePrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: '2' } });
+    const unchangedBase = await pricing.revalidateHospitalityBasePrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: '2' }, expectedFingerprint: baseQuote.fingerprint });
     assert.equal(unchangedBase.changed, false);
 
-    const quote = await pricing.quoteHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: '2' } });
+    const quote = await pricing.quoteHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: '2' } });
     assert.equal(quote.accommodationSubtotal.amountMinor, '400000');
     assert.equal(quote.taxes.amountMinor, '48000');
     assert.equal(quote.fees.amountMinor, '42500');
@@ -84,7 +94,7 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
     assert.equal(quote.charges.length, 3);
 
     await charges.archiveHospitalityChargeRule({ organizationId: organization.id, actorUserId: admin.id, propertyId: property.id, chargeRuleId: vat.id });
-    const revalidated = await pricing.revalidateHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: '2' }, expectedFingerprint: quote.fingerprint });
+    const revalidated = await pricing.revalidateHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: '2' }, expectedFingerprint: quote.fingerprint });
     assert.equal(revalidated.changed, true);
     assert.equal(revalidated.latest.total.amountMinor, '442500');
 

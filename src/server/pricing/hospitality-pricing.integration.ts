@@ -35,7 +35,17 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
+  // Anchor fixture stays to the PostgreSQL clock, not an expiring calendar month.
+  const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  const dateAt = (days: number) =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
   const adminA = await db.user.create({ data: { id: adminAId, email: `pricing-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `pricing-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `pricing-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -62,7 +72,7 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     const firstRate = await pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-09-01', endDate: '2026-09-30', amount: '1500.25' },
+      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(0), endDate: dateAt(29), amount: '1500.25' },
     });
     assert.equal(firstRate.amountMinor, 150025n);
     assert.equal(firstRate.currency, 'PHP');
@@ -70,7 +80,7 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     await assert.rejects(pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-09-15', endDate: '2026-10-01', amount: '1600.00' },
+      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(14), endDate: dateAt(30), amount: '1600.00' },
     }), /cannot overlap/i);
 
     await assert.rejects(ratePlans.removeHospitalityRatePlanFromRoomType({
@@ -94,19 +104,19 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     await assert.rejects(pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: staffA.id,
-      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-01', endDate: '2026-10-31', amount: '1600.00' },
+      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(30), endDate: dateAt(60), amount: '1600.00' },
     }), /permission/i);
 
     const concurrentResults = await Promise.allSettled([
       pricing.createHospitalityBaseRate({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-01', endDate: '2026-10-10', amount: '1600.00' },
+        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(30), endDate: dateAt(39), amount: '1600.00' },
       }),
       pricing.createHospitalityBaseRate({
         organizationId: organizationA.id,
         actorUserId: adminA.id,
-        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-10-05', endDate: '2026-10-15', amount: '1700.00' },
+        baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(34), endDate: dateAt(44), amount: '1700.00' },
       }),
     ]);
     assert.equal(concurrentResults.filter((result) => result.status === 'fulfilled').length, 1);
@@ -115,7 +125,7 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     const quote = await pricing.quoteHospitalityBasePrice({
       organizationId: organizationA.id,
       actorUserId: staffA.id,
-      request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 2 },
+      request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: 2 },
     });
     assert.equal(quote.currency, 'PHP');
     assert.equal(quote.nightly.length, 2);
@@ -124,19 +134,19 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     await assert.rejects(pricing.quoteHospitalityBasePrice({
       organizationId: organizationB.id,
       actorUserId: adminA.id,
-      request: { propertyId: propertyB.id, roomTypeId: roomTypeB.id, ratePlanId: ratePlanB.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 },
+      request: { propertyId: propertyB.id, roomTypeId: roomTypeB.id, ratePlanId: ratePlanB.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: 1 },
     }), /permission/i);
 
     await pricing.archiveHospitalityBaseRate({ organizationId: organizationA.id, actorUserId: adminA.id, propertyId: propertyA.id, baseRateId: firstRate.id });
     await pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: '2026-09-01', endDate: '2026-09-30', amount: '1750.25' },
+      baseRate: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, startDate: dateAt(0), endDate: dateAt(29), amount: '1750.25' },
     });
     const revalidated = await pricing.revalidateHospitalityBasePrice({
       organizationId: organizationA.id,
       actorUserId: staffA.id,
-      request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 2 },
+      request: { propertyId: propertyA.id, roomTypeId: roomTypeA.id, ratePlanId: ratePlanA.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: 2 },
       expectedFingerprint: quote.fingerprint,
     });
     assert.equal(revalidated.changed, true);

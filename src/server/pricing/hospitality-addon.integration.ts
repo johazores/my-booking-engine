@@ -34,7 +34,17 @@ test('hospitality add-ons enforce tenant scope, quantities, concurrency, depende
     await db.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
+  // Anchor fixture stays to the PostgreSQL clock, not an expiring calendar month.
+  const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  const dateAt = (days: number) =>
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
   const admin = await db.user.create({ data: { id: adminId, email: `addon-admin-${runId}@example.test`, status: 'ACTIVE' } });
   const staff = await db.user.create({ data: { id: staffId, email: `addon-staff-${runId}@example.test`, status: 'ACTIVE' } });
   const outsider = await db.user.create({ data: { id: outsiderId, email: `addon-outsider-${runId}@example.test`, status: 'ACTIVE' } });
@@ -51,16 +61,16 @@ test('hospitality add-ons enforce tenant scope, quantities, concurrency, depende
   await inventory.assignHospitalityRatePlanToRoomType({ organizationId: organization.id, actorUserId: admin.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id });
 
   try {
-    const baseRate = await pricing.createHospitalityBaseRate({ organizationId: organization.id, actorUserId: admin.id, baseRate: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, startDate: '2026-09-01', endDate: '2026-09-30', amount: '1000.00' } });
-    await assert.rejects(addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: staff.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Breakfast', code: 'BREAKFAST', description: '', pricingModel: 'PER_ROOM_NIGHT', amount: '100.00', maxQuantity: '1', startDate: '2026-09-01', endDate: '2026-09-30' } }), /permission/i);
+    const baseRate = await pricing.createHospitalityBaseRate({ organizationId: organization.id, actorUserId: admin.id, baseRate: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, startDate: dateAt(0), endDate: dateAt(29), amount: '1000.00' } });
+    await assert.rejects(addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: staff.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Breakfast', code: 'BREAKFAST', description: '', pricingModel: 'PER_ROOM_NIGHT', amount: '100.00', maxQuantity: '1', startDate: dateAt(0), endDate: dateAt(29) } }), /permission/i);
 
-    const transfer = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Airport transfer', code: 'TRANSFER', description: 'Private pickup', pricingModel: 'PER_BOOKING', amount: '500.00', maxQuantity: '1', startDate: '2026-09-01', endDate: '2026-09-30' } });
-    const breakfast = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Breakfast', code: 'BREAKFAST', description: '', pricingModel: 'PER_ROOM_NIGHT', amount: '100.00', maxQuantity: '1', startDate: '2026-09-01', endDate: '2026-09-30' } });
-    const bikes = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Bike rental', code: 'BIKE', description: '', pricingModel: 'PER_UNIT', amount: '200.00', maxQuantity: '4', startDate: '2026-09-01', endDate: '2026-09-30' } });
+    const transfer = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Airport transfer', code: 'TRANSFER', description: 'Private pickup', pricingModel: 'PER_BOOKING', amount: '500.00', maxQuantity: '1', startDate: dateAt(0), endDate: dateAt(29) } });
+    const breakfast = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Breakfast', code: 'BREAKFAST', description: '', pricingModel: 'PER_ROOM_NIGHT', amount: '100.00', maxQuantity: '1', startDate: dateAt(0), endDate: dateAt(29) } });
+    const bikes = await addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Bike rental', code: 'BIKE', description: '', pricingModel: 'PER_UNIT', amount: '200.00', maxQuantity: '4', startDate: dateAt(0), endDate: dateAt(29) } });
 
     const concurrent = await Promise.allSettled([
-      addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Parking', code: 'PARKING', description: '', pricingModel: 'PER_ROOM', amount: '50.00', maxQuantity: '1', startDate: '2026-10-01', endDate: '2026-10-31' } }),
-      addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Scoped parking', code: 'PARKING', description: '', pricingModel: 'PER_ROOM', amount: '40.00', maxQuantity: '1', startDate: '2026-10-10', endDate: '2026-10-20' } }),
+      addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Parking', code: 'PARKING', description: '', pricingModel: 'PER_ROOM', amount: '50.00', maxQuantity: '1', startDate: dateAt(30), endDate: dateAt(60) } }),
+      addons.createHospitalityAddon({ organizationId: organization.id, actorUserId: admin.id, addon: { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, name: 'Scoped parking', code: 'PARKING', description: '', pricingModel: 'PER_ROOM', amount: '40.00', maxQuantity: '1', startDate: dateAt(39), endDate: dateAt(49) } }),
     ]);
     assert.equal(concurrent.filter((result) => result.status === 'fulfilled').length, 1);
     assert.equal(concurrent.filter((result) => result.status === 'rejected').length, 1);
@@ -69,9 +79,9 @@ test('hospitality add-ons enforce tenant scope, quantities, concurrency, depende
 
     const otherTenantView = await addons.listHospitalityAddons({ organizationId: otherOrganization.id, actorUserId: outsider.id, propertyId: property.id, page: 1, pageSize: 20 });
     assert.equal(otherTenantView.total, 0);
-    await assert.rejects(addons.createHospitalityAddon({ organizationId: otherOrganization.id, actorUserId: outsider.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Cross tenant', code: 'CROSS', description: '', pricingModel: 'PER_BOOKING', amount: '1.00', maxQuantity: '1', startDate: '2026-09-01', endDate: '2026-09-30' } }), /active property/i);
+    await assert.rejects(addons.createHospitalityAddon({ organizationId: otherOrganization.id, actorUserId: outsider.id, addon: { propertyId: property.id, roomTypeId: '', ratePlanId: '', name: 'Cross tenant', code: 'CROSS', description: '', pricingModel: 'PER_BOOKING', amount: '1.00', maxQuantity: '1', startDate: dateAt(0), endDate: dateAt(29) } }), /active property/i);
 
-    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: '2' };
+    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: '2' };
     const withoutAddons = await pricing.quoteHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request });
     assert.equal(withoutAddons.total.amountMinor, '400000');
     const quote = await pricing.quoteHospitalityPrice({ organizationId: organization.id, actorUserId: staff.id, request, addonSelections: [

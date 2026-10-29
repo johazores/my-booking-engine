@@ -103,6 +103,8 @@ The Stripe payment, refund, and signed-refund-webhook database integration suite
 
 The ten hospitality booking integrity, staff modification, and public capability PostgreSQL suites now guard fixture setup from the first insert with preassigned tenant/user IDs. Their existing tenant-scoped, dependency-ordered teardown runs on partial setup failures as well as completed tests, and Prisma disconnects even if teardown fails. Eight of these suites also derive stay/rate/booking dates from PostgreSQL `clock_timestamp()` instead of fixed September/October 2026 fixture dates, keeping test chronology valid as time advances. The public hold/confirmation suites already use relative dates. `scripts/hospitality-booking-database-fixture-contract.test.mjs` protects these source-level boundaries; this does not substitute for actual Node 24 and disposable PostgreSQL migration/integration execution.
 
+The three hospitality pricing PostgreSQL integration suites (base rates, charges, and add-ons) now register teardown before fixture writes, guarantee Prisma disconnect even if cleanup fails, and derive rate windows, overlapping concurrent definitions, and quote/revalidation stays from PostgreSQL `clock_timestamp()` plus UTC calendar-day offsets. The 30-day future lead avoids expiry as the calendar advances, while fixed relative offsets preserve original overlap and two-night quote expectations across month/year boundaries. `scripts/hospitality-pricing-database-fixture-contract.test.mjs` checks these source-level safety contracts and UTC date rollover; it does not establish live Prisma/PostgreSQL validation.
+
 ## Validation
 
 Before considering a coherent slice complete, run the relevant available checks:
