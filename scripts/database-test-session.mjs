@@ -1,5 +1,6 @@
 // Verify that Prisma migrations and raw PostgreSQL catalog tests address the
 // same disposable database and public schema before any migration is applied.
+// Also reject role/database defaults that disable integrity enforcement.
 export class DatabaseTestSessionError extends Error {
   constructor(message) {
     super(message);
@@ -14,6 +15,12 @@ export function assertDisposableDatabaseSession(testDatabaseUrl, row) {
   }
   if (row.schemaName !== 'public') {
     throw new DatabaseTestSessionError('Disposable PostgreSQL tests require current_schema() to be public.');
+  }
+  if (row.replicationRole !== 'origin') {
+    throw new DatabaseTestSessionError('Disposable PostgreSQL tests require session_replication_role to be origin so normal integrity triggers are active.');
+  }
+  if (row.rowSecurity !== 'on') {
+    throw new DatabaseTestSessionError('Disposable PostgreSQL tests require row_security to be on.');
   }
 }
 
@@ -30,7 +37,12 @@ export async function verifyDisposableDatabaseSession(testDatabaseUrl) {
     });
     await client.connect();
     connected = true;
-    const result = await client.query('SELECT current_database() AS "databaseName", current_schema() AS "schemaName"');
+    const result = await client.query(`
+      SELECT current_database() AS "databaseName",
+             current_schema() AS "schemaName",
+             current_setting('session_replication_role') AS "replicationRole",
+             current_setting('row_security') AS "rowSecurity"
+    `);
     if (result.rows.length !== 1) {
       throw new DatabaseTestSessionError('Could not establish the disposable PostgreSQL database and schema identity.');
     }

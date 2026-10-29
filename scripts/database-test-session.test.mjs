@@ -4,27 +4,57 @@ import test from 'node:test';
 
 import { assertDisposableDatabaseSession, DatabaseTestSessionError } from './database-test-session.mjs';
 
-test('accepts a verified public schema and the exact disposable database identity', () => {
+const healthySession = {
+  databaseName: 'sf_test', schemaName: 'public', replicationRole: 'origin', rowSecurity: 'on',
+};
+
+test('accepts the expected database, public schema, and enabled integrity settings', () => {
   assert.doesNotThrow(() => assertDisposableDatabaseSession('postgresql://localhost:5432/sf_test?schema=public', {
-    databaseName: 'sf_test', schemaName: 'public',
+    ...healthySession,
   }));
   assert.doesNotThrow(() => assertDisposableDatabaseSession('postgresql://localhost/sf_%C3%A9', {
-    databaseName: 'sf_é', schemaName: 'public',
+    ...healthySession, databaseName: 'sf_é',
   }));
 });
 
 test('rejects an unexpected database, schema, missing schema, or missing row', () => {
   const url = 'postgresql://user:secret@localhost:5432/sf_test';
   for (const row of [
-    { databaseName: 'sf_prod', schemaName: 'public' },
-    { databaseName: 'sf_test', schemaName: 'tenant' },
-    { databaseName: 'sf_test', schemaName: null },
+    { ...healthySession, databaseName: 'sf_prod' },
+    { ...healthySession, schemaName: 'tenant' },
+    { ...healthySession, schemaName: null },
     undefined,
   ]) {
     assert.throws(() => assertDisposableDatabaseSession(url, row), (error) => {
       assert.ok(error instanceof DatabaseTestSessionError);
       assert.ok(!error.message.includes('secret'));
       assert.ok(!error.message.includes('sf_prod'));
+      return true;
+    });
+  }
+});
+
+test('rejects replication settings that bypass ordinary integrity triggers', () => {
+  for (const replicationRole of ['replica', 'local', null, undefined, 'ORIGIN']) {
+    assert.throws(() => assertDisposableDatabaseSession('postgresql://user:secret@localhost/sf_test', {
+      ...healthySession, replicationRole,
+    }), (error) => {
+      assert.ok(error instanceof DatabaseTestSessionError);
+      assert.match(error.message, /session_replication_role.*origin/);
+      assert.ok(!error.message.includes('secret'));
+      return true;
+    });
+  }
+});
+
+test('rejects disabled or unverified row-level security defaults', () => {
+  for (const rowSecurity of ['off', null, undefined, 'ON']) {
+    assert.throws(() => assertDisposableDatabaseSession('postgresql://user:secret@localhost/sf_test', {
+      ...healthySession, rowSecurity,
+    }), (error) => {
+      assert.ok(error instanceof DatabaseTestSessionError);
+      assert.match(error.message, /row_security.*on/);
+      assert.ok(!error.message.includes('secret'));
       return true;
     });
   }
@@ -41,4 +71,6 @@ test('session verification bounds connection and read-only query waits', () => {
   const source = readFileSync(new URL('./database-test-session.mjs', import.meta.url), 'utf8');
   assert.match(source, /connectionTimeoutMillis: 5000/);
   assert.match(source, /query_timeout: 5000/);
+  assert.ok(source.includes("current_setting('session_replication_role')"));
+  assert.ok(source.includes("current_setting('row_security')"));
 });
