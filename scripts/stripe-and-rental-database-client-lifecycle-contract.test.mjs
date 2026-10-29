@@ -36,6 +36,8 @@ for (const filename of stripeSuites) {
     assert.doesNotMatch(source, /new Date\((?:'|\x60)2026-/);
     assert.doesNotMatch(source, /2026-(?:09|10)-\x24\{/);
     assert.match(source, /new Date\(databaseNow\.getTime\(\) \+ 3_600_000\)/);
+    assert.match(source, /status: 'CONSUMED',\s*expiresAt: new Date\(databaseNow\.getTime\(\) \+ 3_600_000\),\s*endedAt: new Date\(\)/);
+    assert.match(source, /confirmedAt: new Date\(\)/);
   });
 }
 

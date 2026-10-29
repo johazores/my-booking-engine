@@ -85,7 +85,7 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     quantity: 1,
     status: 'CONSUMED',
     expiresAt: new Date(databaseNow.getTime() + 3_600_000),
-    endedAt: databaseNow,
+    endedAt: new Date(),
   } });
   const booking = await db.hospitalityBooking.create({ data: {
     organizationId: organization.id,
@@ -201,7 +201,7 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     quantity: 1,
     status: 'CONSUMED',
     expiresAt: new Date(databaseNow.getTime() + 3_600_000),
-    endedAt: databaseNow,
+    endedAt: new Date(),
   } });
   const foreignBooking = await db.hospitalityBooking.create({ data: {
     organizationId: organization.id,

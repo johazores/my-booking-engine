@@ -91,7 +91,7 @@ test('Stripe refunds are tenant-safe, serialized, idempotent, and balance bounde
         quantity: 1,
         status: 'CONSUMED',
         expiresAt: new Date(databaseNow.getTime() + 3_600_000),
-        endedAt: databaseNow,
+        endedAt: new Date(),
       } });
       const booking = await db.hospitalityBooking.create({ data: {
         organizationId: organizationA.id,

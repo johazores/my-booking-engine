@@ -150,7 +150,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         quantity: 1,
         status: 'CONSUMED',
         expiresAt: new Date(databaseNow.getTime() + 3_600_000),
-        endedAt: databaseNow,
+        endedAt: new Date(),
       } });
       const booking = await db.hospitalityBooking.create({ data: {
         organizationId: organizationA.id,
@@ -173,7 +173,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         totalMinor: 12345n,
         pricingFingerprint: String(sequence).padStart(64, 'a').slice(-64),
         addonSelections: [],
-        confirmedAt: databaseNow,
+        confirmedAt: new Date(),
       } });
       return booking;
     }
