@@ -210,6 +210,18 @@ model AuthSession {
   @@map("auth_sessions")
 }
 
+model AuthAttemptWindow {
+  operation   String   @db.VarChar(16)
+  scope       String   @db.VarChar(12)
+  subjectHash String   @db.Char(64)
+  windowStart DateTime @db.Timestamptz(6)
+  attempts    Int      @default(1)
+
+  @@id([operation, scope, subjectHash, windowStart], map: "auth_attempt_windows_pkey")
+  @@index([windowStart], map: "auth_attempt_windows_windowStart_idx")
+  @@map("auth_attempt_windows")
+}
+
 model OrganizationMembership {
   id             String           @id @default(uuid()) @db.Uuid
   organizationId String           @db.Uuid

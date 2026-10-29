@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
+import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthValidationError } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_SESSION_COOKIE,
@@ -43,6 +44,13 @@ export async function POST(request: Request) {
   }
 
   try {
+    const attempt = await reserveAuthAttempt('sign-in', field(formData, 'email'));
+    if (!attempt.allowed) {
+      const response = NextResponse.redirect(new URL('/sign-in?error=rate-limited', request.url), 303);
+      response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
+      return finish(response, 'rejected');
+    }
+
     const result = await signInWithPassword({
       email: field(formData, 'email'),
       password: field(formData, 'password'),

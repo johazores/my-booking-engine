@@ -83,6 +83,6 @@ Implemented in the broader product after the authentication foundation:
 
 Still pending or gated:
 
-- durable, multi-instance-safe abuse controls for public sign-in and sign-up requests, including bounded per-source and per-account attempts, safe failure handling, and privacy-safe operational visibility. The checked-in routes and authentication service do not enforce an application-level attempt limit. Deployment-edge protection has not been verified and must not be assumed;
+- live validation and operational rollout of database-backed 15-minute sign-in/sign-up identity and deployment-wide budgets. The checked-in implementation is described in `docs/authentication-abuse-control.md`. Trusted per-source enforcement, account-enumeration remediation, and deployment-edge controls remain open;
 - password reset/recovery and additional security-event workflows, which must not be presented as available;
 - live PostgreSQL verification of checked-in migrations in an available disposable database environment.

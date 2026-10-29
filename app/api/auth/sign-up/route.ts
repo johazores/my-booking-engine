@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
+import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthValidationError } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_SESSION_COOKIE,
@@ -43,6 +44,13 @@ export async function POST(request: Request) {
   }
 
   try {
+    const attempt = await reserveAuthAttempt('sign-up', field(formData, 'email'));
+    if (!attempt.allowed) {
+      const response = NextResponse.redirect(new URL('/sign-up?error=rate-limited', request.url), 303);
+      response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
+      return finish(response, 'rejected');
+    }
+
     const result = await registerWithPassword({
       email: field(formData, 'email'),
       password: field(formData, 'password'),
@@ -55,15 +63,15 @@ export async function POST(request: Request) {
     });
     return finish(response);
   } catch (error) {
-    const code =
-      error instanceof AuthConflictError
-        ? 'exists'
-        : error instanceof AuthValidationError
-          ? 'validation'
-          : 'server';
+    // Do not expose a dedicated "account exists" browser response.
+    // Immediate sign-in on successful registration still limits full enumeration resistance.
+    const code = error instanceof AuthValidationError ? 'validation' : 'server';
+    const outcome = error instanceof AuthConflictError || error instanceof AuthValidationError
+      ? 'rejected'
+      : 'failed';
     return finish(
       NextResponse.redirect(new URL(`/sign-up?error=${code}`, request.url), 303),
-      code === 'server' ? 'failed' : 'rejected',
+      outcome,
     );
   }
 }

@@ -21,7 +21,7 @@
 
 ## Authentication security
 
-**Open production hardening gap:** the checked-in sign-in and sign-up routes do not enforce application-level attempt throttling or registration abuse limits. Generic credential errors and scrypt hashing do not prevent online guessing or request floods. No deployment-edge rate limiting is verified in this repository. Before treating these endpoints as Internet-exposed production-ready, implement and validate multi-instance-safe controls with bounded failure handling, privacy-safe telemetry, and regression coverage. A process-local counter would not protect multiple replicas.
+**Partially implemented, not production-validated:** sign-in and sign-up now reserve bounded database-clock attempts before credential work. Identity keys are keyed HMACs and counters are atomic across replicas. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
 
 The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 

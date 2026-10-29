@@ -19,6 +19,8 @@ TypeScript 7 is newer, but this baseline intentionally uses the mature TypeScrip
 
 ## Local setup
 
+Generate a dedicated 32-byte base64url `SF_AUTH_ABUSE_SECRET` before using sign-in or sign-up. All replicas must share the same key. See `docs/authentication-abuse-control.md`.
+
 ```bash
 cp .env.example .env.local
 npm install
