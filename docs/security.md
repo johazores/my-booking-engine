@@ -21,6 +21,8 @@
 
 ## Authentication security
 
+**Open production hardening gap:** the checked-in sign-in and sign-up routes do not enforce application-level attempt throttling or registration abuse limits. Generic credential errors and scrypt hashing do not prevent online guessing or request floods. No deployment-edge rate limiting is verified in this repository. Before treating these endpoints as Internet-exposed production-ready, implement and validate multi-instance-safe controls with bounded failure handling, privacy-safe telemetry, and regression coverage. A process-local counter would not protect multiple replicas.
+
 The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 
 Passwords are not trimmed or normalized. The current policy requires 12–128 Unicode characters. The stored hash contains a random salt and versioned scrypt parameters so future rehashing can be introduced without changing the external authentication contract.
