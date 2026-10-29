@@ -14,15 +14,23 @@ after(async () => {
 
 test('commercial settlement evidence database guards are installed with the intended timing', async () => {
   const { db } = await import('../database.ts');
-  const rows = await db.$queryRaw<Array<{ trigger_name: string; table_name: string; enabled: string; definition: string }>>`
+  const rows = await db.$queryRaw<Array<{ trigger_name: string; table_name: string; enabled: string; definition: string; handler_name: string; event_type: number }>>`
     SELECT trigger_row.tgname AS trigger_name,
            relation_row.relname AS table_name,
            trigger_row.tgenabled::text AS enabled,
+           handler_row.proname AS handler_name,
+           trigger_row.tgtype::integer AS event_type,
            pg_get_triggerdef(trigger_row.oid) AS definition
       FROM pg_trigger trigger_row
       JOIN pg_class relation_row ON relation_row.oid = trigger_row.tgrelid
       JOIN pg_namespace namespace_row ON namespace_row.oid = relation_row.relnamespace
+      JOIN pg_proc handler_row ON handler_row.oid = trigger_row.tgfoid
+      JOIN pg_namespace handler_namespace ON handler_namespace.oid = handler_row.pronamespace
      WHERE namespace_row.nspname = current_schema()
+       AND relation_row.relkind = 'r'
+       AND handler_namespace.nspname = current_schema()
+       AND handler_row.pronargs = 0
+       AND handler_row.prorettype = 'pg_catalog.trigger'::regtype
        AND NOT trigger_row.tgisinternal
        AND trigger_row.tgname IN (
          'hospitality_commercial_settlement_evidence_insert_guard',
@@ -38,9 +46,21 @@ test('commercial settlement evidence database guards are installed with the inte
     ['hospitality_commercial_settlement_evidence_tx_insert_guard', 'hospitality_commercial_settlement_evidence_transactions'],
     ['hospitality_commercial_settlement_evidence_continuity_guard', 'hospitality_commercial_settlement_evidence'],
   ]);
+  const expectedHandlers = new Map([
+    ['hospitality_commercial_settlement_evidence_insert_guard', 'sf_validate_hospitality_commercial_settlement_evidence_insert'],
+    ['hospitality_commercial_settlement_evidence_tx_insert_guard', 'sf_validate_hospitality_commercial_settlement_tx_insert'],
+    ['hospitality_commercial_settlement_evidence_continuity_guard', 'sf_check_hospitality_commercial_settlement_evidence_continuity'],
+  ]);
+  const expectedEvents = new Map([
+    ['hospitality_commercial_settlement_evidence_insert_guard', 7], // BEFORE INSERT FOR EACH ROW
+    ['hospitality_commercial_settlement_evidence_tx_insert_guard', 7],
+    ['hospitality_commercial_settlement_evidence_continuity_guard', 5], // AFTER INSERT FOR EACH ROW
+  ]);
   for (const row of rows) {
     assert.equal(row.table_name, expectedTables.get(row.trigger_name), `${row.trigger_name} must guard the intended table`);
     assert.equal(row.enabled, 'O', `${row.trigger_name} must be enabled for ordinary writes`);
+    assert.equal(row.handler_name, expectedHandlers.get(row.trigger_name), `${row.trigger_name} must call the intended function`);
+    assert.equal(row.event_type, expectedEvents.get(row.trigger_name), `${row.trigger_name} must have the intended row/event timing`);
   }
   const byName = new Map(rows.map((row) => [row.trigger_name, row.definition]));
   assert.match(byName.get('hospitality_commercial_settlement_evidence_insert_guard') ?? '', /BEFORE INSERT/i);

@@ -6,15 +6,42 @@ function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('commercial settlement catalog assertions target the current schema, real tables, and enabled trigger functions', () => {
+test('commercial settlement catalog assertions bind current-schema tables, enabled triggers, handlers, and row events', () => {
   const file = source('src/server/payments/hospitality-commercial-settlement-evidence-database-integrity.integration.ts');
   assert.match(file, /JOIN pg_namespace namespace_row ON namespace_row\.oid = relation_row\.relnamespace/);
   assert.equal((file.match(/namespace_row\.nspname = current_schema\(\)/g) ?? []).length, 2);
   assert.match(file, /trigger_row\.tgenabled::text AS enabled/);
+  assert.match(file, /JOIN pg_proc handler_row ON handler_row\.oid = trigger_row\.tgfoid/);
+  assert.match(file, /JOIN pg_namespace handler_namespace ON handler_namespace\.oid = handler_row\.pronamespace/);
+  assert.match(file, /handler_namespace\.nspname = current_schema\(\)/);
+  assert.match(file, /relation_row\.relkind = 'r'/);
+  assert.match(file, /handler_row\.pronargs = 0/);
+  assert.match(file, /handler_row\.prorettype = 'pg_catalog\.trigger'::regtype/);
+  assert.match(file, /trigger_row\.tgtype::integer AS event_type/);
+  assert.match(file, /assert\.equal\(row\.handler_name, expectedHandlers\.get\(row\.trigger_name\)/);
+  assert.match(file, /assert\.equal\(row\.event_type, expectedEvents\.get\(row\.trigger_name\)/);
+  assert.equal((file.match(/'hospitality_commercial_settlement_evidence_(?:tx_)?insert_guard', 7/g) ?? []).length, 2);
+  assert.match(file, /'hospitality_commercial_settlement_evidence_continuity_guard', 5/);
   assert.match(file, /assert\.equal\(row\.enabled, 'O'/);
   assert.match(file, /assert\.equal\(row\.table_name, expectedTables\.get\(row\.trigger_name\)/);
   for (const table of ['hospitality_commercial_settlement_evidence', 'hospitality_commercial_settlement_evidence_transactions']) {
     assert.ok(file.includes(`'${table}'`), `missing expected catalog table ${table}`);
+  }
+  const expectedBindings = [
+    ['hospitality_commercial_settlement_evidence_insert_guard', 'sf_validate_hospitality_commercial_settlement_evidence_insert'],
+    ['hospitality_commercial_settlement_evidence_tx_insert_guard', 'sf_validate_hospitality_commercial_settlement_tx_insert'],
+    ['hospitality_commercial_settlement_evidence_continuity_guard', 'sf_check_hospitality_commercial_settlement_evidence_continuity'],
+  ];
+  const migrationSources = [
+    source('prisma/migrations/20260924222000-hospitality-commercial-settlement-evidence/migration.sql'),
+    source('prisma/migrations/20260924233000-hospitality-commercial-settlement-evidence-integrity/migration.sql'),
+  ];
+  for (const [triggerName, handlerName] of expectedBindings) {
+    assert.ok(file.includes(`['${triggerName}', '${handlerName}']`), `${triggerName} must bind the intended handler`);
+    assert.ok(migrationSources.some((migration) =>
+      migration.includes(`TRIGGER ${triggerName}`) &&
+      migration.includes(`EXECUTE FUNCTION ${handlerName}();`)
+    ), `${triggerName} must be backed by the checked-in migration`);
   }
   assert.match(file, /procedure_row\.pronargs = 0/);
   assert.match(file, /procedure_row\.prorettype = 'pg_catalog\.trigger'::regtype/);
