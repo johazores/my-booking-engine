@@ -171,7 +171,7 @@ test('blank inherited and local PostgreSQL override variables do not block expli
   });
 });
 
-test('rejects inherited dotenv path and override settings without exposing values', () => {
+test('rejects inherited dotenv path, override, and encoding settings without exposing values', () => {
   for (const key of DISALLOWED_DOTENV_CONFIG_KEYS) {
     assert.throws(
       () => assertNoDotenvConfigurationOverrides({ [key]: 'private-path-or-value' }),
@@ -202,10 +202,10 @@ test('rejects late-loaded dotenv configuration in every local environment varian
 
 test('blank dotenv settings do not block explicit PostgreSQL URLs', () => {
   assert.doesNotThrow(() => assertNoDotenvConfigurationOverrides({
-    DOTENV_CONFIG_PATH: '  ', DOTENV_CONFIG_OVERRIDE: '',
+    DOTENV_CONFIG_PATH: '  ', DOTENV_CONFIG_OVERRIDE: '', DOTENV_CONFIG_ENCODING: ' ',
   }));
   withFixture((root) => {
-    writeFileSync(join(root, '.env.local'), 'DOTENV_CONFIG_PATH="  "\nDOTENV_CONFIG_OVERRIDE=""\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n');
+    writeFileSync(join(root, '.env.local'), 'DOTENV_CONFIG_PATH="  "\nDOTENV_CONFIG_OVERRIDE=""\nDOTENV_CONFIG_ENCODING=" "\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n');
     assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_dev']);
   });
 });

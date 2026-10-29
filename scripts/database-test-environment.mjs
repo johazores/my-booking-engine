@@ -23,8 +23,9 @@ export const DISALLOWED_POSTGRES_ENV_KEYS = [
 
 // prisma.config.ts imports dotenv/config. A custom path can load connection
 // settings that the test preflight never inspected, while override=true can
-// replace the validated DATABASE_URL in a Prisma subprocess.
-export const DISALLOWED_DOTENV_CONFIG_KEYS = ['DOTENV_CONFIG_PATH', 'DOTENV_CONFIG_OVERRIDE'];
+// replace the validated DATABASE_URL in a Prisma subprocess. A different
+// encoding can make dotenv read .env differently from our UTF-8 preflight.
+export const DISALLOWED_DOTENV_CONFIG_KEYS = ['DOTENV_CONFIG_PATH', 'DOTENV_CONFIG_OVERRIDE', 'DOTENV_CONFIG_ENCODING'];
 
 export function assertNoDotenvConfigurationOverrides(environment = process.env, source = 'process environment') {
   for (const key of DISALLOWED_DOTENV_CONFIG_KEYS) {

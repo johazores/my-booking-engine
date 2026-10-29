@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -89,4 +89,12 @@ test('mandatory suite manifest permits new suites but rejects missing or duplica
   assert.throws(() => assertRequiredDatabaseIntegrationTests(['missing'], ['a']), /Required database integration tests missing/);
   assert.throws(() => assertRequiredDatabaseIntegrationTests(['a', 'a'], ['a']), /Duplicate database integration test entries/);
   assert.throws(() => assertRequiredDatabaseIntegrationTests(['a'], ['a', 'a']), /Duplicate database integration test entries/);
+});
+
+test('database runner bounds file-level concurrency after migration and drift checks', () => {
+  const runner = readFileSync(new URL('./run-database-tests.mjs', import.meta.url), 'utf8');
+  const drift = runner.indexOf("run(npmCommand, ['run', 'db:drift']);");
+  const integrationRun = runner.indexOf("run(process.execPath, ['--test', '--test-concurrency=1', ...discoveredDatabaseIntegrationTests]);");
+  assert.ok(drift >= 0, 'migration drift verification must be present');
+  assert.ok(integrationRun > drift, 'all discovered suites must run serially after drift verification');
 });

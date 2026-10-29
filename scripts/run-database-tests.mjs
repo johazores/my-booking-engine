@@ -97,4 +97,6 @@ run(npmCommand, ['run', 'prisma:generate']);
 run(npmCommand, ['run', 'db:deploy']);
 run(npmCommand, ['run', 'db:status']);
 run(npmCommand, ['run', 'db:drift']);
-run(process.execPath, ['--test', ...discoveredDatabaseIntegrationTests]);
+// Each suite opens database connections and manages its own tenant fixtures.
+// Bound file-level concurrency without weakening intentional within-suite races.
+run(process.execPath, ['--test', '--test-concurrency=1', ...discoveredDatabaseIntegrationTests]);
