@@ -8,7 +8,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Hospitality pricing integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('hospitality base pricing enforces scope, exact money, overlap, dependencies, concurrency, and revalidation', async () => {
+test('hospitality base pricing enforces scope, exact money, overlap, dependencies, concurrency, and revalidation', async (t) => {
   const [{ db }, pricing, ratePlans, organizations] = await Promise.all([
     import('../database.ts'),
     import('./hospitality-pricing-service.ts'),
@@ -16,11 +16,31 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     import('../organizations/organization-management-service.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `pricing-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `pricing-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `pricing-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Pricing Tenant A', slug: `pricing-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
-  const organizationB = await db.organization.create({ data: { name: 'Pricing Tenant B', slug: `pricing-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+  const adminAId = crypto.randomUUID();
+  const staffAId = crypto.randomUUID();
+  const adminBId = crypto.randomUUID();
+  const organizationAId = crypto.randomUUID();
+  const organizationBId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
+  const adminA = await db.user.create({ data: { id: adminAId, email: `pricing-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const staffA = await db.user.create({ data: { id: staffAId, email: `pricing-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+  const adminB = await db.user.create({ data: { id: adminBId, email: `pricing-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+  const organizationA = await db.organization.create({ data: { id: organizationAId, name: 'Pricing Tenant A', slug: `pricing-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
+  const organizationB = await db.organization.create({ data: { id: organizationBId, name: 'Pricing Tenant B', slug: `pricing-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
   await db.organizationMembership.createMany({ data: [
     { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
@@ -126,14 +146,6 @@ test('hospitality base pricing enforces scope, exact money, overlap, dependencie
     assert.ok(events.some((event) => event.action === 'pricing.base-rate.created'));
     assert.ok(events.some((event) => event.action === 'pricing.base-rate.archived'));
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    await cleanupFixtures();
   }
 });

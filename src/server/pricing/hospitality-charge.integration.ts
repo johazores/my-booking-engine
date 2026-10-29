@@ -5,7 +5,7 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) throw new Error('Hospitality charge integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 
-test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies, and exact quote totals', async () => {
+test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies, and exact quote totals', async (t) => {
   const [{ db }, inventory, pricing, charges, organizations] = await Promise.all([
     import('../database.ts'),
     import('../inventory/hospitality-rate-plan-service.ts'),
@@ -14,11 +14,32 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
     import('../organizations/organization-management-service.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const admin = await db.user.create({ data: { email: `charge-admin-${runId}@example.test`, status: 'ACTIVE' } });
-  const staff = await db.user.create({ data: { email: `charge-staff-${runId}@example.test`, status: 'ACTIVE' } });
-  const outsider = await db.user.create({ data: { email: `charge-outsider-${runId}@example.test`, status: 'ACTIVE' } });
-  const organization = await db.organization.create({ data: { name: 'Charge Tenant', slug: `charge-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
-  const otherOrganization = await db.organization.create({ data: { name: 'Other Charge Tenant', slug: `other-charge-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
+  const adminId = crypto.randomUUID();
+  const staffId = crypto.randomUUID();
+  const outsiderId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
+  const otherOrganizationId = crypto.randomUUID();
+  let fixturesCleaned = false;
+  async function cleanupFixtures() {
+    if (fixturesCleaned) return;
+    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationId, otherOrganizationId] } } });
+    await db.hospitalityChargeRule.deleteMany({ where: { organizationId: organizationId } });
+    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organizationId } });
+    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationId } });
+    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationId } });
+    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationId } });
+    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationId } });
+    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationId, otherOrganizationId] } } });
+    await db.organization.deleteMany({ where: { id: { in: [organizationId, otherOrganizationId] } } });
+    await db.user.deleteMany({ where: { id: { in: [adminId, staffId, outsiderId] } } });
+    fixturesCleaned = true;
+  }
+  t.after(cleanupFixtures);
+  const admin = await db.user.create({ data: { id: adminId, email: `charge-admin-${runId}@example.test`, status: 'ACTIVE' } });
+  const staff = await db.user.create({ data: { id: staffId, email: `charge-staff-${runId}@example.test`, status: 'ACTIVE' } });
+  const outsider = await db.user.create({ data: { id: outsiderId, email: `charge-outsider-${runId}@example.test`, status: 'ACTIVE' } });
+  const organization = await db.organization.create({ data: { id: organizationId, name: 'Charge Tenant', slug: `charge-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
+  const otherOrganization = await db.organization.create({ data: { id: otherOrganizationId, name: 'Other Charge Tenant', slug: `other-charge-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'PHP' } });
   await db.organizationMembership.createMany({ data: [
     { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
     { organizationId: organization.id, userId: staff.id, status: 'ACTIVE', role: 'STAFF' },
@@ -76,15 +97,6 @@ test('hospitality taxes and fees enforce tenant scope, concurrency, dependencies
     const audit = await db.auditEvent.count({ where: { organizationId: organization.id, resourceType: 'hospitality-charge-rule' } });
     assert.ok(audit >= 8);
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organization.id, otherOrganization.id] } } });
-    await db.hospitalityChargeRule.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organization.id, otherOrganization.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organization.id, otherOrganization.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [admin.id, staff.id, outsider.id] } } });
+    await cleanupFixtures();
   }
 });
