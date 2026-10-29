@@ -58,6 +58,8 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
   `;
   assert.equal(extension[0]?.installed, true, 'The GiST equality/inequality operator classes must be installed.');
 
+  // An unqualified to_regclass lookup can fall through search_path to a later
+  // schema when the active schema is missing the payment table.
   const rows = await db.$queryRaw<ReferenceIndex[]>`
     SELECT index_class.relname AS "indexName",
            access_method.amname AS "accessMethod",
@@ -83,12 +85,15 @@ test('deployed PostgreSQL retains the Stripe reference uniqueness and ownership 
            pg_get_indexdef(index_row.indexrelid, 4, true) AS "keyFour"
       FROM pg_index index_row
       JOIN pg_class table_class ON table_class.oid = index_row.indrelid
+      JOIN pg_namespace table_namespace ON table_namespace.oid = table_class.relnamespace
       JOIN pg_class index_class ON index_class.oid = index_row.indexrelid
       JOIN pg_am access_method ON access_method.oid = index_class.relam
       LEFT JOIN pg_constraint constraint_row
         ON constraint_row.conindid = index_row.indexrelid
        AND constraint_row.conrelid = table_class.oid
-     WHERE table_class.oid = to_regclass('payment_transactions')
+     WHERE table_namespace.nspname = current_schema()
+       AND table_class.relname = 'payment_transactions'
+       AND table_class.relkind = 'r'
        AND index_class.relname IN (
          'payment_transactions_stripe_refund_ref_key',
          'payment_transactions_stripe_pi_booking_excl',

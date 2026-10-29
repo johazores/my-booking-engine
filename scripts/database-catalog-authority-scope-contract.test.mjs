@@ -42,7 +42,12 @@ test('refund authority constraint catalog check is scoped to the current schema'
   assert.match(file, /constraint_row\.convalidated/);
 });
 
-test('Stripe catalog check resolves its target table through the active schema', () => {
+test('Stripe catalog check requires the current schema and ordinary payment table, not search_path fallback', () => {
   const file = source('src/server/payments/stripe-reference-database-constraints.integration.ts');
-  assert.match(file, /table_class\.oid = to_regclass\('payment_transactions'\)/);
+  assert.match(file, /JOIN pg_namespace table_namespace ON table_namespace\.oid = table_class\.relnamespace/);
+  assert.match(file, /table_namespace\.nspname = current_schema\(\)/);
+  assert.match(file, /table_class\.relname = 'payment_transactions'/);
+  assert.match(file, /table_class\.relkind = 'r'/);
+  assert.doesNotMatch(file, /to_regclass\('payment_transactions'\)/);
+  assert.match(file, /constraint_row\.conrelid = table_class\.oid/);
 });
