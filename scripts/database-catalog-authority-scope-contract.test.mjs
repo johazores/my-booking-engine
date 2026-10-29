@@ -31,7 +31,7 @@ test('rental security bond catalog checks bind enabled triggers to real tables, 
   const file = source('src/server/payments/rental-security-bond.integration.ts');
   for (const required of [
     'JOIN pg_namespace n ON n.oid = c.relnamespace',
-    'n.nspname = current_schema()',
+    'WHERE n.nspname = current_schema()',
     'JOIN pg_proc p ON p.oid = t.tgfoid',
     'JOIN pg_namespace pn ON pn.oid = p.pronamespace',
     'pn.nspname = current_schema()',
