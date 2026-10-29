@@ -42,7 +42,13 @@ test('invoice issuer versions and hospitality invoice preparation stay tenant sc
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const adminA = await db.user.create({ data: { id: adminAId, email: `invoice-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `invoice-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `invoice-admin-b-${runId}@example.test`, status: 'ACTIVE' } });

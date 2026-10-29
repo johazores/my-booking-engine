@@ -14,11 +14,12 @@ for (const [filename, users, organizations] of suites) {
   test(`${filename} cleans partial payment/legal-document fixtures`, () => {
     const source = readFileSync(new URL(`../src/server/payments/${filename}`, import.meta.url), 'utf8');
     const cleanup = source.indexOf('async function cleanupFixtures()');
-    const registration = source.indexOf('t.after(cleanupFixtures);');
+    const registration = source.indexOf('t.after(async () => {');
     const firstFixture = source.search(/const (?:adminA|organization) = await db\.(?:user|organization)\.create/);
     assert.ok(cleanup > 0 && registration > cleanup && firstFixture > registration, 'cleanup must be registered before fixture writes');
     assert.match(source, /async \(t\) => \{/);
     assert.match(source, /finally \{\s*await cleanupFixtures\(\);/);
+    assert.match(source.slice(registration, firstFixture), /t\.after\(async \(\) => \{\s*try \{\s*await cleanupFixtures\(\);\s*\} finally \{\s*await db\.\$disconnect\(\);\s*\}\s*\}\);/, 'after hook must disconnect even if cleanup throws');
     const cleanupBody = source.slice(cleanup, registration);
     assert.match(cleanupBody, /if \(fixturesCleaned\) return;/);
     assert.match(cleanupBody, /fixturesCleaned = true;/);

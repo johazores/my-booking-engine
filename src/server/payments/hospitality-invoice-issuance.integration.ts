@@ -45,7 +45,13 @@ test('Australian tax-invoice issuance is tenant scoped, idempotent, sequence saf
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const adminA = await db.user.create({ data: { id: adminAId, email: `invoice-issue-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `invoice-issue-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `invoice-issue-admin-b-${runId}@example.test`, status: 'ACTIVE' } });

@@ -32,7 +32,13 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
     await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const adminA = await db.user.create({ data: { id: adminAId, email: `payment-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
   const staffA = await db.user.create({ data: { id: staffAId, email: `payment-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
   const adminB = await db.user.create({ data: { id: adminBId, email: `payment-admin-b-${runId}@example.test`, status: 'ACTIVE' } });

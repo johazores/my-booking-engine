@@ -18,7 +18,13 @@ test('hospitality invoice number sequences reject rewrites and unmatched advance
     await db.organization.deleteMany({ where: { id: organizationId } });
     fixturesCleaned = true;
   }
-  t.after(cleanupFixtures);
+  t.after(async () => {
+    try {
+      await cleanupFixtures();
+    } finally {
+      await db.$disconnect();
+    }
+  });
   const organization = await db.organization.create({
     data: {
       id: organizationId,
