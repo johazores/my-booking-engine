@@ -15,18 +15,21 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
   ]);
 
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `tour-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `tour-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `tour-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Tour Tenant A', slug: `tour-a-${runId}`.slice(0, 63), kind: 'TOUR_OPERATOR', timezone: 'Asia/Manila' } });
-  const organizationB = await db.organization.create({ data: { name: 'Tour Tenant B', slug: `tour-b-${runId}`.slice(0, 63), kind: 'TOUR_OPERATOR', timezone: 'Asia/Manila' } });
-  await db.organizationMembership.createMany({ data: [
-    { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
-    { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
-    { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
-  ] });
+  const userIds = Array.from({ length: 3 }, () => crypto.randomUUID());
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
 
   try {
+    const adminA = await db.user.create({ data: { id: userIds[0], email: `tour-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const staffA = await db.user.create({ data: { id: userIds[1], email: `tour-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const adminB = await db.user.create({ data: { id: userIds[2], email: `tour-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+    const organizationA = await db.organization.create({ data: { id: organizationIds[0], name: 'Tour Tenant A', slug: `tour-a-${runId}`.slice(0, 63), kind: 'TOUR_OPERATOR', timezone: 'Asia/Manila' } });
+    const organizationB = await db.organization.create({ data: { id: organizationIds[1], name: 'Tour Tenant B', slug: `tour-b-${runId}`.slice(0, 63), kind: 'TOUR_OPERATOR', timezone: 'Asia/Manila' } });
+    await db.organizationMembership.createMany({ data: [
+      { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
+      { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
+      { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
+    ] });
+
     const productA = await tours.createTourProduct({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -145,12 +148,16 @@ test('tour inventory enforces tenant scope, permissions, schedule capacity, add-
     assert.ok(events.some((event) => event.action === 'inventory.tour-addon.created'));
     assert.ok(events.some((event) => event.action === 'inventory.tour-product.archived'));
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.tourAddon.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.tourDeparture.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.tourProduct.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.tourAddon.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.tourDeparture.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.tourProduct.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organization.deleteMany({ where: { id: { in: organizationIds } } });
+      await db.user.deleteMany({ where: { id: { in: userIds } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

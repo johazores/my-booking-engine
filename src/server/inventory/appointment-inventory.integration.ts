@@ -15,32 +15,37 @@ test('appointment inventory enforces tenant scope, permissions, staff-service ow
   ]);
 
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `appointment-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffUserA = await db.user.create({ data: { email: `appointment-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `appointment-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({
-    data: {
-      name: 'Appointment Tenant A',
-      slug: `appointment-a-${runId}`.slice(0, 63),
-      kind: 'APPOINTMENT_BUSINESS',
-      timezone: 'Asia/Manila',
-    },
-  });
-  const organizationB = await db.organization.create({
-    data: {
-      name: 'Appointment Tenant B',
-      slug: `appointment-b-${runId}`.slice(0, 63),
-      kind: 'APPOINTMENT_BUSINESS',
-      timezone: 'Asia/Manila',
-    },
-  });
-  await db.organizationMembership.createMany({ data: [
-    { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
-    { organizationId: organizationA.id, userId: staffUserA.id, status: 'ACTIVE', role: 'STAFF' },
-    { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
-  ] });
+  const userIds = Array.from({ length: 3 }, () => crypto.randomUUID());
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
 
   try {
+    const adminA = await db.user.create({ data: { id: userIds[0], email: `appointment-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const staffUserA = await db.user.create({ data: { id: userIds[1], email: `appointment-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const adminB = await db.user.create({ data: { id: userIds[2], email: `appointment-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+    const organizationA = await db.organization.create({
+      data: {
+        id: organizationIds[0],
+        name: 'Appointment Tenant A',
+        slug: `appointment-a-${runId}`.slice(0, 63),
+        kind: 'APPOINTMENT_BUSINESS',
+        timezone: 'Asia/Manila',
+      },
+    });
+    const organizationB = await db.organization.create({
+      data: {
+        id: organizationIds[1],
+        name: 'Appointment Tenant B',
+        slug: `appointment-b-${runId}`.slice(0, 63),
+        kind: 'APPOINTMENT_BUSINESS',
+        timezone: 'Asia/Manila',
+      },
+    });
+    await db.organizationMembership.createMany({ data: [
+      { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
+      { organizationId: organizationA.id, userId: staffUserA.id, status: 'ACTIVE', role: 'STAFF' },
+      { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
+    ] });
+
     const serviceA = await appointments.createAppointmentService({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -218,13 +223,17 @@ test('appointment inventory enforces tenant scope, permissions, staff-service ow
     assert.ok(events.some((event) => event.action === 'inventory.appointment-schedule.created'));
     assert.ok(events.some((event) => event.action === 'inventory.appointment-staff.archived'));
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.appointmentStaffService.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.appointmentSchedule.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.appointmentStaff.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.appointmentService.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffUserA.id, adminB.id] } } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.appointmentStaffService.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.appointmentSchedule.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.appointmentStaff.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.appointmentService.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organization.deleteMany({ where: { id: { in: organizationIds } } });
+      await db.user.deleteMany({ where: { id: { in: userIds } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

@@ -17,43 +17,48 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
   ]);
 
   const runId = crypto.randomUUID();
-  const tenantAAdmin = await db.user.create({
-    data: { email: `integration-a-admin-${runId}@example.test`, status: 'ACTIVE' },
-  });
-  const tenantAManager = await db.user.create({
-    data: { email: `integration-a-manager-${runId}@example.test`, status: 'ACTIVE' },
-  });
-  const tenantBAdmin = await db.user.create({
-    data: { email: `integration-b-admin-${runId}@example.test`, status: 'ACTIVE' },
-  });
-  const tenantA = await db.organization.create({
-    data: {
-      name: 'Integration Tenant A',
-      slug: `integration-a-${runId}`.slice(0, 63),
-      kind: 'OTHER',
-      timezone: 'UTC',
-      currency: 'USD',
-    },
-  });
-  const tenantB = await db.organization.create({
-    data: {
-      name: 'Integration Tenant B',
-      slug: `integration-b-${runId}`.slice(0, 63),
-      kind: 'OTHER',
-      timezone: 'UTC',
-      currency: 'USD',
-    },
-  });
-
-  await db.organizationMembership.createMany({
-    data: [
-      { organizationId: tenantA.id, userId: tenantAAdmin.id, status: 'ACTIVE', role: 'ADMIN' },
-      { organizationId: tenantA.id, userId: tenantAManager.id, status: 'ACTIVE', role: 'MANAGER' },
-      { organizationId: tenantB.id, userId: tenantBAdmin.id, status: 'ACTIVE', role: 'ADMIN' },
-    ],
-  });
+  const userIds = Array.from({ length: 3 }, () => crypto.randomUUID());
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
 
   try {
+    const tenantAAdmin = await db.user.create({
+      data: { id: userIds[0], email: `integration-a-admin-${runId}@example.test`, status: 'ACTIVE' },
+    });
+    const tenantAManager = await db.user.create({
+      data: { id: userIds[1], email: `integration-a-manager-${runId}@example.test`, status: 'ACTIVE' },
+    });
+    const tenantBAdmin = await db.user.create({
+      data: { id: userIds[2], email: `integration-b-admin-${runId}@example.test`, status: 'ACTIVE' },
+    });
+    const tenantA = await db.organization.create({
+      data: {
+        id: organizationIds[0],
+        name: 'Integration Tenant A',
+        slug: `integration-a-${runId}`.slice(0, 63),
+        kind: 'OTHER',
+        timezone: 'UTC',
+        currency: 'USD',
+      },
+    });
+    const tenantB = await db.organization.create({
+      data: {
+        id: organizationIds[1],
+        name: 'Integration Tenant B',
+        slug: `integration-b-${runId}`.slice(0, 63),
+        kind: 'OTHER',
+        timezone: 'UTC',
+        currency: 'USD',
+      },
+    });
+
+    await db.organizationMembership.createMany({
+      data: [
+        { organizationId: tenantA.id, userId: tenantAAdmin.id, status: 'ACTIVE', role: 'ADMIN' },
+        { organizationId: tenantA.id, userId: tenantAManager.id, status: 'ACTIVE', role: 'MANAGER' },
+        { organizationId: tenantB.id, userId: tenantBAdmin.id, status: 'ACTIVE', role: 'ADMIN' },
+      ],
+    });
+
     await assert.rejects(
       integrations.saveIntegration({
         organizationId: tenantA.id,
@@ -274,12 +279,16 @@ test('tenant integrations enforce database ownership, authorization, lifecycle, 
       }),
     );
   } finally {
-    await db.integration.deleteMany({ where: { organizationId: { in: [tenantA.id, tenantB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [tenantA.id, tenantB.id] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [tenantA.id, tenantB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [tenantA.id, tenantB.id] } } });
-    await db.user.deleteMany({
-      where: { id: { in: [tenantAAdmin.id, tenantAManager.id, tenantBAdmin.id] } },
-    });
+    try {
+      await db.integration.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: organizationIds } } });
+      await db.organization.deleteMany({ where: { id: { in: organizationIds } } });
+      await db.user.deleteMany({
+        where: { id: { in: userIds } },
+      });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });
