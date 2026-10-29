@@ -30,3 +30,12 @@ export function createAuthAttemptDigest(
   return createHmac('sha256', secret)
     .update(operation).update('\0').update(scope).update('\0').update(subject).digest('hex');
 }
+
+export async function admitAuthAttemptWithBudgets(
+  limits: Readonly<{ identity: number; global: number }>,
+  consume: (scope: AuthAttemptScope, limit: number) => Promise<boolean>,
+): Promise<boolean> {
+  // Repeatedly rejected identities must not consume the shared deployment budget.
+  if (!(await consume('identity', limits.identity))) return false;
+  return consume('global', limits.global);
+}

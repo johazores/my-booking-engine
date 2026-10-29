@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { db } from '../database.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  createAuthAttemptDigest, decodeAuthAbuseSecret,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
   type AuthAttemptOperation, type AuthAttemptScope,
 } from './auth-abuse-domain.ts';
 
@@ -43,13 +43,10 @@ export async function reserveAuthAttempt(operation: AuthAttemptOperation, email:
   const globalDigest = createAuthAttemptDigest(operation, 'global', '', secret);
   const identityDigest = createAuthAttemptDigest(operation, 'identity', email, secret);
 
-  const globalAllowed = await consumeWindow(operation, 'global', globalDigest, limits.global);
-  if (!globalAllowed) {
-    return { allowed: false, retryAfterSeconds: AUTH_ATTEMPT_WINDOW_SECONDS } as const;
-  }
-  const identityAllowed = await consumeWindow(operation, 'identity', identityDigest, limits.identity);
+  const allowed = await admitAuthAttemptWithBudgets(limits, (scope, limit) =>
+    consumeWindow(operation, scope, scope === 'identity' ? identityDigest : globalDigest, limit));
   await pruneExpiredWindowsBestEffort();
-  return identityAllowed
+  return allowed
     ? { allowed: true } as const
     : { allowed: false, retryAfterSeconds: AUTH_ATTEMPT_WINDOW_SECONDS } as const;
 }

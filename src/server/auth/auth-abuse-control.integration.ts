@@ -33,11 +33,21 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
     assert.equal(signupAttempts.filter((result) => result.allowed).length, 4);
     assert.equal(signupAttempts.filter((result) => !result.allowed).length, 1);
     const windows = await db.authAttemptWindow.findMany({
-      where: { subjectHash: { in: [firstDigest, otherDigest, signupDigest] } },
+      where: { subjectHash: { in: [firstDigest, otherDigest, signupDigest, signinGlobalDigest, signupGlobalDigest] } },
     });
-    assert.equal(windows.length, 3);
+    assert.equal(windows.length, 5);
     assert.equal(windows.find((row) => row.subjectHash === firstDigest)?.attempts, 10);
+    assert.equal(windows.find((row) => row.subjectHash === otherDigest)?.attempts, 1);
     assert.equal(windows.find((row) => row.subjectHash === signupDigest)?.attempts, 4);
+    assert.equal(windows.find((row) => row.subjectHash === signinGlobalDigest)?.attempts, 11);
+    assert.equal(windows.find((row) => row.subjectHash === signupGlobalDigest)?.attempts, 4);
+    const blockedFlood = await Promise.all(Array.from({ length: 8 },
+      () => reserveAuthAttempt('sign-in', firstEmail)));
+    assert.ok(blockedFlood.every((result) => !result.allowed));
+    const globalAfterFlood = await db.authAttemptWindow.findFirst({
+      where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
+    });
+    assert.equal(globalAfterFlood?.attempts, 11);
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(firstEmail)));
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(otherEmail)));
     delete process.env.SF_AUTH_ABUSE_SECRET;

@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import test from 'node:test';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  createAuthAttemptDigest, decodeAuthAbuseSecret,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
 } from './auth-abuse-domain.ts';
 
 test('auth attempt secret requires canonical 32-byte base64url', () => {
@@ -32,4 +32,35 @@ test('both credential routes have bounded identity and global budgets', () => {
   for (const limits of Object.values(AUTH_ATTEMPT_LIMITS)) {
     assert.ok(limits.identity > 0 && limits.global > limits.identity);
   }
+});
+
+test('blocked identities do not spend shared admission capacity', async () => {
+  const consumed: string[] = [];
+  const allowed = await admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-in'], async (scope, limit) => {
+    consumed.push(`${scope}:${limit}`);
+    return false;
+  });
+  assert.equal(allowed, false);
+  assert.deepEqual(consumed, ['identity:10']);
+});
+
+test('admitted identities must also pass the deployment-wide quota', async () => {
+  for (const globalAllowed of [true, false]) {
+    const consumed: string[] = [];
+    const allowed = await admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-up'], async (scope, limit) => {
+      consumed.push(`${scope}:${limit}`);
+      return scope === 'identity' || globalAllowed;
+    });
+    assert.equal(allowed, globalAllowed);
+    assert.deepEqual(consumed, ['identity:4', 'global:1500']);
+  }
+});
+
+test('quota storage failures fail closed without continuing to the next scope', async () => {
+  const consumed: string[] = [];
+  await assert.rejects(() => admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-in'], async (scope) => {
+    consumed.push(scope);
+    throw new Error('database unavailable');
+  }), /database unavailable/);
+  assert.deepEqual(consumed, ['identity']);
 });
