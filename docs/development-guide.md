@@ -105,6 +105,8 @@ The ten hospitality booking integrity, staff modification, and public capability
 
 The three hospitality pricing PostgreSQL integration suites (base rates, charges, and add-ons) now register teardown before fixture writes, guarantee Prisma disconnect even if cleanup fails, and derive rate windows, overlapping concurrent definitions, and quote/revalidation stays from PostgreSQL `clock_timestamp()` plus UTC calendar-day offsets. The 30-day future lead avoids expiry as the calendar advances, while fixed relative offsets preserve original overlap and two-night quote expectations across month/year boundaries. `scripts/hospitality-pricing-database-fixture-contract.test.mjs` checks these source-level safety contracts and UTC date rollover; it does not establish live Prisma/PostgreSQL validation.
 
+The original hospitality booking confirmation/cancellation integration suite now uses PostgreSQL-relative future rate/stay dates and a consistent database-clock timeline for hold confirmation, cancellation, and idempotent cancellation replay. The manual/offline payment integration suite also uses future PostgreSQL-relative stay dates and a consistent hold expiry, consumption, and booking confirmation timeline, avoiding invalid expired fixture evidence. `scripts/booking-payment-database-date-contract.test.mjs` guards these date contracts and calendar rollovers. These are source-level safeguards pending live PostgreSQL validation.
+
 ## Validation
 
 Before considering a coherent slice complete, run the relevant available checks:

@@ -19,6 +19,9 @@ test('booking confirmation revalidates persisted pricing and cancellation safely
   const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
 
   try {
+    const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const dateAt = (days: number) =>
+      new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30 + days)).toISOString().slice(0, 10);
     const adminA = await db.user.create({ data: { id: userIds[0], email: `booking-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
     const staffA = await db.user.create({ data: { id: userIds[1], email: `booking-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
     const adminB = await db.user.create({ data: { id: userIds[2], email: `booking-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
@@ -43,14 +46,13 @@ test('booking confirmation revalidates persisted pricing and cancellation safely
         propertyId: property.id,
         roomTypeId: roomType.id,
         ratePlanId: ratePlan.id,
-        startDate: '2026-09-01',
-        endDate: '2026-09-30',
+        startDate: dateAt(0),
+        endDate: dateAt(29),
         amount: '100.00',
       },
     });
 
-    const now = new Date('2026-09-01T00:00:00.000Z');
-    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
+    const request = { propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id, arrivalDate: dateAt(9), departureDate: dateAt(11), quantity: 1 };
     const hold = await holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, now, hold: { idempotencyKey: 'hold:booking-confirm', request } });
     const quoted = await pricing.quoteHospitalityPrice({ organizationId: organizationA.id, actorUserId: adminA.id, request });
     const guests = [
@@ -155,12 +157,12 @@ test('booking confirmation revalidates persisted pricing and cancellation safely
     );
     await db.hospitalityBooking.update({ where: { id: created.id }, data: { paymentStatus: 'UNPAID' } });
 
-    const cancelledAt = new Date('2026-09-02T12:00:00.000Z');
+    const cancelledAt = new Date(now.getTime() + 36 * 60 * 60 * 1000);
     const cancelled = await cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now: cancelledAt });
     assert.equal(cancelled.status, 'CANCELLED');
     assert.equal(cancelled.cancelledAt?.getTime(), cancelledAt.getTime());
 
-    const cancellationRetry = await cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now: new Date('2026-09-03T00:00:00.000Z') });
+    const cancellationRetry = await cancellations.cancelHospitalityBooking({ organizationId: organizationA.id, actorUserId: adminA.id, bookingId: created.id, now: new Date(now.getTime() + 48 * 60 * 60 * 1000) });
     assert.equal(cancellationRetry.id, created.id);
     assert.equal(cancellationRetry.cancelledAt?.getTime(), cancelledAt.getTime());
 

@@ -55,18 +55,23 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Payment Hotel', code: 'PAY', timezone: 'UTC', countryCode: 'US' } });
     const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Room', code: 'ROOM', maxOccupancy: 2 } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
+    // Use the PostgreSQL clock for fixture chronology and future stay dates.
+    const [{ now }] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const arrivalDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 30));
+    const departureDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 31));
+    const settledAt = new Date(now.getTime() + 60_000);
     const hold = await db.hospitalityAvailabilityHold.create({ data: {
       organizationId: organizationA.id,
       propertyId: property.id,
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
       idempotencyKey: 'payment-test-hold',
-      arrivalDate: new Date('2026-09-10T00:00:00.000Z'),
-      departureDate: new Date('2026-09-11T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       status: 'CONSUMED',
-      expiresAt: new Date('2026-09-10T01:00:00.000Z'),
-      endedAt: new Date('2026-09-10T00:01:00.000Z'),
+      expiresAt: new Date(now.getTime() + 3_600_000),
+      endedAt: settledAt,
     } });
     const booking = await db.hospitalityBooking.create({ data: {
       organizationId: organizationA.id,
@@ -78,8 +83,8 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
       idempotencyKey: 'payment-test-booking',
       status: 'CONFIRMED',
       paymentStatus: 'UNPAID',
-      arrivalDate: new Date('2026-09-10T00:00:00.000Z'),
-      departureDate: new Date('2026-09-11T00:00:00.000Z'),
+      arrivalDate: arrivalDate,
+      departureDate: departureDate,
       quantity: 1,
       currency: 'USD',
       accommodationSubtotalMinor: 12345n,
@@ -89,7 +94,7 @@ test('manual offline payments and refunds are tenant scoped, idempotent, and use
       totalMinor: 12345n,
       pricingFingerprint: 'a'.repeat(64),
       addonSelections: [],
-      confirmedAt: new Date('2026-09-10T00:01:00.000Z'),
+      confirmedAt: settledAt,
     } });
 
 
