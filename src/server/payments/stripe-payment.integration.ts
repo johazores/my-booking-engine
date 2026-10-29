@@ -66,19 +66,23 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
   const organizationBId = crypto.randomUUID();
   // Register cleanup before the first write, including partial fixture setup failures.
   t.after(async () => {
-    await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
-    await db.customer.deleteMany({ where: { organizationId: organizationAId } });
-    await db.integration.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+    try {
+      await db.paymentWebhookEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.paymentTransaction.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.hospitalityBooking.deleteMany({ where: { organizationId: organizationAId } });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationAId } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationAId } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationAId } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationAId } });
+      await db.customer.deleteMany({ where: { organizationId: organizationAId } });
+      await db.integration.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationAId, organizationBId] } } });
+      await db.organization.deleteMany({ where: { id: { in: [organizationAId, organizationBId] } } });
+      await db.user.deleteMany({ where: { id: { in: [adminAId, staffAId, adminBId] } } });
+    } finally {
+      await db.$disconnect();
+    }
   });
 
   const adminA = await db.user.create({ data: { id: adminAId, email: `stripe-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
@@ -127,6 +131,13 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
     const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Room', code: 'ROOM', maxOccupancy: 2 } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
 
+    const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+    assert.ok(databaseClock?.now);
+    const databaseNow = databaseClock.now;
+    const stayDate = (offset: number) => new Date(Date.UTC(
+      databaseNow.getUTCFullYear(), databaseNow.getUTCMonth(), databaseNow.getUTCDate() + 30 + offset,
+    ));
+
     async function createBooking(sequence: number) {
       const hold = await db.hospitalityAvailabilityHold.create({ data: {
         organizationId: organizationA.id,
@@ -134,12 +145,12 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         roomTypeId: roomType.id,
         ratePlanId: ratePlan.id,
         idempotencyKey: `stripe-test-hold-${sequence}`,
-        arrivalDate: new Date(`2026-09-${10 + sequence}T00:00:00.000Z`),
-        departureDate: new Date(`2026-09-${11 + sequence}T00:00:00.000Z`),
+        arrivalDate: stayDate(sequence),
+        departureDate: stayDate(sequence + 1),
         quantity: 1,
         status: 'CONSUMED',
-        expiresAt: new Date(`2026-09-${10 + sequence}T01:00:00.000Z`),
-        endedAt: new Date(`2026-09-${10 + sequence}T00:01:00.000Z`),
+        expiresAt: new Date(databaseNow.getTime() + 3_600_000),
+        endedAt: databaseNow,
       } });
       const booking = await db.hospitalityBooking.create({ data: {
         organizationId: organizationA.id,
@@ -151,8 +162,8 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         idempotencyKey: `stripe-test-booking-${sequence}`,
         status: 'CONFIRMED',
         paymentStatus: 'UNPAID',
-        arrivalDate: new Date(`2026-09-${10 + sequence}T00:00:00.000Z`),
-        departureDate: new Date(`2026-09-${11 + sequence}T00:00:00.000Z`),
+        arrivalDate: stayDate(sequence),
+        departureDate: stayDate(sequence + 1),
         quantity: 1,
         currency: 'USD',
         accommodationSubtotalMinor: 12345n,
@@ -162,7 +173,7 @@ test('Stripe payment persistence serializes provider calls and reconciles verifi
         totalMinor: 12345n,
         pricingFingerprint: String(sequence).padStart(64, 'a').slice(-64),
         addonSelections: [],
-        confirmedAt: new Date(`2026-09-${10 + sequence}T00:01:00.000Z`),
+        confirmedAt: databaseNow,
       } });
       return booking;
     }

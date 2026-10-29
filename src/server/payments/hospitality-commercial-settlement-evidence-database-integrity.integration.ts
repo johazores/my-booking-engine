@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Commercial settlement-evidence database integrity tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
+
+after(async () => {
+  const { db } = await import('../database.ts');
+  await db.$disconnect();
+});
 
 test('commercial settlement evidence database guards are installed with the intended timing', async () => {
   const { db } = await import('../database.ts');

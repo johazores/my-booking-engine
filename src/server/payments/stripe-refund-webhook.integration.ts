@@ -30,19 +30,23 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
   const organizationId = crypto.randomUUID();
   // Register cleanup before the first write, including partial fixture setup failures.
   t.after(async () => {
-    await db.paymentWebhookEvent.deleteMany({ where: { organizationId } });
-    await db.auditEvent.deleteMany({ where: { organizationId } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId } });
-    await db.hospitalityBooking.deleteMany({ where: { organizationId } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId } });
-    await db.customer.deleteMany({ where: { organizationId } });
-    await db.integration.deleteMany({ where: { organizationId } });
-    await db.organizationMembership.deleteMany({ where: { organizationId } });
-    await db.organization.deleteMany({ where: { id: organizationId } });
-    await db.user.deleteMany({ where: { id: adminId } });
+    try {
+      await db.paymentWebhookEvent.deleteMany({ where: { organizationId } });
+      await db.auditEvent.deleteMany({ where: { organizationId } });
+      await db.paymentTransaction.deleteMany({ where: { organizationId } });
+      await db.hospitalityBooking.deleteMany({ where: { organizationId } });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationId } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationId } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationId } });
+      await db.customer.deleteMany({ where: { organizationId } });
+      await db.integration.deleteMany({ where: { organizationId } });
+      await db.organizationMembership.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      await db.user.deleteMany({ where: { id: adminId } });
+    } finally {
+      await db.$disconnect();
+    }
   });
 
   const admin = await db.user.create({ data: { id: adminId, email: `stripe-refund-webhook-${runId}@example.test`, status: 'ACTIVE' } });
@@ -63,18 +67,25 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
   const property = await db.hospitalityProperty.create({ data: { organizationId: organization.id, name: 'Webhook Hotel', code: 'WEBHOOK', timezone: 'UTC', countryCode: 'US' } });
   const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organization.id, propertyId: property.id, name: 'Room', code: 'ROOM', maxOccupancy: 2 } });
   const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organization.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
+  const [databaseClock] = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS "now"`;
+  assert.ok(databaseClock?.now);
+  const databaseNow = databaseClock.now;
+  const stayDate = (offset: number) => new Date(Date.UTC(
+    databaseNow.getUTCFullYear(), databaseNow.getUTCMonth(), databaseNow.getUTCDate() + 30 + offset,
+  ));
+
   const hold = await db.hospitalityAvailabilityHold.create({ data: {
     organizationId: organization.id,
     propertyId: property.id,
     roomTypeId: roomType.id,
     ratePlanId: ratePlan.id,
     idempotencyKey: `stripe-refund-webhook-hold-${runId}`,
-    arrivalDate: new Date('2026-10-20T00:00:00.000Z'),
-    departureDate: new Date('2026-10-21T00:00:00.000Z'),
+    arrivalDate: stayDate(0),
+    departureDate: stayDate(1),
     quantity: 1,
     status: 'CONSUMED',
-    expiresAt: new Date('2026-10-20T01:00:00.000Z'),
-    endedAt: new Date('2026-10-20T00:01:00.000Z'),
+    expiresAt: new Date(databaseNow.getTime() + 3_600_000),
+    endedAt: databaseNow,
   } });
   const booking = await db.hospitalityBooking.create({ data: {
     organizationId: organization.id,
@@ -86,8 +97,8 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     idempotencyKey: `stripe-refund-webhook-booking-${runId}`,
     status: 'CONFIRMED',
     paymentStatus: 'PAID',
-    arrivalDate: new Date('2026-10-20T00:00:00.000Z'),
-    departureDate: new Date('2026-10-21T00:00:00.000Z'),
+    arrivalDate: stayDate(0),
+    departureDate: stayDate(1),
     quantity: 1,
     currency: 'USD',
     accommodationSubtotalMinor: 10000n,
@@ -185,12 +196,12 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     roomTypeId: roomType.id,
     ratePlanId: ratePlan.id,
     idempotencyKey: `stripe-refund-foreign-hold-${runId}`,
-    arrivalDate: new Date('2026-10-22T00:00:00.000Z'),
-    departureDate: new Date('2026-10-23T00:00:00.000Z'),
+    arrivalDate: stayDate(2),
+    departureDate: stayDate(3),
     quantity: 1,
     status: 'CONSUMED',
-    expiresAt: new Date('2026-10-22T01:00:00.000Z'),
-    endedAt: new Date('2026-10-22T00:01:00.000Z'),
+    expiresAt: new Date(databaseNow.getTime() + 3_600_000),
+    endedAt: databaseNow,
   } });
   const foreignBooking = await db.hospitalityBooking.create({ data: {
     organizationId: organization.id,
@@ -202,8 +213,8 @@ test('verified Stripe refund webhooks bind pending claims and finalize refund st
     idempotencyKey: `stripe-refund-foreign-booking-${runId}`,
     status: 'CONFIRMED',
     paymentStatus: 'UNPAID',
-    arrivalDate: new Date('2026-10-22T00:00:00.000Z'),
-    departureDate: new Date('2026-10-23T00:00:00.000Z'),
+    arrivalDate: stayDate(2),
+    departureDate: stayDate(3),
     quantity: 1,
     currency: 'USD',
     accommodationSubtotalMinor: 10000n,

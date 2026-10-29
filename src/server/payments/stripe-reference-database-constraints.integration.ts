@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
 // Prisma cannot model these partial/exclusion indexes. Check deployed catalog
 // authority independently of Prisma schema drift and direct-write regressions.
@@ -7,6 +7,11 @@ const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
 if (!testDatabaseUrl || process.env.DATABASE_URL?.trim() !== testDatabaseUrl) {
   throw new Error('Stripe reference database authority tests require the guarded npm run test:database target.');
 }
+
+after(async () => {
+  const { db } = await import('../database.ts');
+  await db.$disconnect();
+});
 
 type ReferenceIndex = {
   indexName: string;

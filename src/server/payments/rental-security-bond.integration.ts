@@ -33,7 +33,7 @@ function addUtcDays(date: Date, days: number) {
   return new Date(date.getTime() + (days * 86_400_000));
 }
 
-test('rental security bond is tenant-scoped, append-only, pickup/cancellation guarded, and reference-isolated', async () => {
+test('rental security bond is tenant-scoped, append-only, pickup/cancellation guarded, and reference-isolated', async (t) => {
   const [{ db }, holds, bookings, authority, cancellations, fulfillment, bonds, rentalPayments, inspections, damageCases, liabilities, forfeitures, damagePayments, bondGuards] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
@@ -50,6 +50,10 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
     import('./rental-damage-settlement-service.ts'),
     import('../bookings/rental-booking-security-bond-guard-service.ts'),
   ]);
+
+  t.after(async () => {
+    await db.$disconnect();
+  });
 
   const runId = crypto.randomUUID();
   const admin = await db.user.create({ data: { email: `rental-bond-admin-${runId}@example.test`, status: 'ACTIVE' } });

@@ -9,7 +9,7 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
   throw new Error('Rental payment integration tests must run through npm run test:database with TEST_DATABASE_URL.');
 }
 
-test('rental manual settlement is tenant-scoped, idempotent, append-only, supports partial funding/refunds, and blocks cancellation until fully refunded', async () => {
+test('rental manual settlement is tenant-scoped, idempotent, append-only, supports partial funding/refunds, and blocks cancellation until fully refunded', async (t) => {
   const [{ db }, holds, bookings, authority, cancellations, payments, pricing] = await Promise.all([
     import('../database.ts'),
     import('../inventory/rental-hold-service.ts'),
@@ -19,6 +19,10 @@ test('rental manual settlement is tenant-scoped, idempotent, append-only, suppor
     import('./rental-payment-service.ts'),
     import('../pricing/money.ts'),
   ]);
+
+  t.after(async () => {
+    await db.$disconnect();
+  });
 
   const runId = crypto.randomUUID();
   // Keep live availability scenarios in the future, anchored to PostgreSQL time.
