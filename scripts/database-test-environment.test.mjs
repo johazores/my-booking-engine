@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { assertNoPostgresConnectionOverrides, DISALLOWED_POSTGRES_ENV_KEYS, readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
+import { assertNoDotenvConfigurationOverrides, assertNoPostgresConnectionOverrides, DISALLOWED_DOTENV_CONFIG_KEYS, DISALLOWED_POSTGRES_ENV_KEYS, readLocalApplicationDatabaseUrls } from './database-test-environment.mjs';
 import { DATABASE_TEST_CONFIRMATION, validateDisposableTestDatabase } from './database-test-safety.mjs';
 
 function withFixture(run) {
@@ -169,4 +169,49 @@ test('blank inherited and local PostgreSQL override variables do not block expli
     writeFileSync(join(root, '.env.local'), `${DISALLOWED_POSTGRES_ENV_KEYS.map((key) => `${key}="  "`).join('\n')}\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n`);
     assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_dev']);
   });
+});
+
+test('rejects inherited dotenv path and override settings without exposing values', () => {
+  for (const key of DISALLOWED_DOTENV_CONFIG_KEYS) {
+    assert.throws(
+      () => assertNoDotenvConfigurationOverrides({ [key]: 'private-path-or-value' }),
+      (error) => error.message.includes(key) && !error.message.includes('private-path-or-value'),
+      key,
+    );
+  }
+});
+
+test('rejects late-loaded dotenv configuration in every local environment variant', () => {
+  const variants = [
+    '.env', '.env.local', '.env.development', '.env.development.local',
+    '.env.production', '.env.production.local', '.env.test', '.env.test.local',
+  ];
+  for (const filename of variants) {
+    for (const key of DISALLOWED_DOTENV_CONFIG_KEYS) {
+      withFixture((root) => {
+        writeFileSync(join(root, filename), `${key}=private-path-or-value\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n`);
+        assert.throws(
+          () => readLocalApplicationDatabaseUrls(root),
+          (error) => error.message.includes(key) && error.message.includes(filename) && !error.message.includes('private-path-or-value'),
+          `${filename}: ${key}`,
+        );
+      });
+    }
+  }
+});
+
+test('blank dotenv settings do not block explicit PostgreSQL URLs', () => {
+  assert.doesNotThrow(() => assertNoDotenvConfigurationOverrides({
+    DOTENV_CONFIG_PATH: '  ', DOTENV_CONFIG_OVERRIDE: '',
+  }));
+  withFixture((root) => {
+    writeFileSync(join(root, '.env.local'), 'DOTENV_CONFIG_PATH="  "\nDOTENV_CONFIG_OVERRIDE=""\nDATABASE_URL=postgresql://localhost:5432/sf_dev\n');
+    assert.deepEqual(readLocalApplicationDatabaseUrls(root), ['postgresql://localhost:5432/sf_dev']);
+  });
+});
+
+test('database runner rejects inherited dotenv configuration before Prisma execution', () => {
+  const runner = readFileSync(new URL('./run-database-tests.mjs', import.meta.url), 'utf8');
+  assert.match(runner, /assertNoDotenvConfigurationOverrides\(process\.env\)/);
+  assert.ok(runner.indexOf('assertNoDotenvConfigurationOverrides(process.env)') < runner.indexOf("run(npmCommand, ['run', 'prisma:validate'])"));
 });

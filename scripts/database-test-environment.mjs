@@ -21,6 +21,19 @@ export const DISALLOWED_POSTGRES_ENV_KEYS = [
   'PGHOST', 'PGHOSTADDR', 'PGDATABASE', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS',
 ];
 
+// prisma.config.ts imports dotenv/config. A custom path can load connection
+// settings that the test preflight never inspected, while override=true can
+// replace the validated DATABASE_URL in a Prisma subprocess.
+export const DISALLOWED_DOTENV_CONFIG_KEYS = ['DOTENV_CONFIG_PATH', 'DOTENV_CONFIG_OVERRIDE'];
+
+export function assertNoDotenvConfigurationOverrides(environment = process.env, source = 'process environment') {
+  for (const key of DISALLOWED_DOTENV_CONFIG_KEYS) {
+    if (typeof environment[key] === 'string' && environment[key].trim()) {
+      throw new Error(`${key} in ${source} is not supported for disposable database tests; dotenv/config could load unreviewed connection settings or override the validated DATABASE_URL.`);
+    }
+  }
+}
+
 export function assertNoPostgresConnectionOverrides(environment = process.env, source = 'process environment') {
   for (const key of DISALLOWED_POSTGRES_ENV_KEYS) {
     if (typeof environment[key] === 'string' && environment[key].trim()) {
@@ -48,6 +61,7 @@ export function readLocalApplicationDatabaseUrls(rootDirectory = process.cwd()) 
       throw new Error(`Cannot parse ${filename} while checking the disposable database target.`);
     }
     assertNoPostgresConnectionOverrides(parsed, filename);
+    assertNoDotenvConfigurationOverrides(parsed, filename);
     // Prisma's dotenv loader can import PGPORT after the runner preflight.
     // Reject local overrides rather than comparing URLs against the wrong port.
     if (parsed.PGPORT?.trim()) {
