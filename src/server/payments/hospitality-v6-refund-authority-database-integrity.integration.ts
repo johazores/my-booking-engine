@@ -93,6 +93,8 @@ test('schema-version-6 refund-authority constraint is installed and validated', 
      WHERE namespace_row.nspname = current_schema()
        AND constraint_row.conname = 'hospitality_adj_notes_v6_refund_authorities_check'
        AND relation_row.relname = 'hospitality_issued_adjustment_notes'
+       AND relation_row.relkind = 'r'
+       AND constraint_row.contype = 'c'
   `;
 
   assert.equal(rows.length, 1);

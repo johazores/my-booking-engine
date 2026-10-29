@@ -45,6 +45,8 @@ The guarded commercial-settlement, Australian refund-authority, and rental secur
 
 `scripts/database-catalog-authority-scope-contract.test.mjs` protects these source-level assertions. They remain **unexecuted against PostgreSQL** until the guarded Node 24 disposable-database run succeeds; source checks do not establish that any migration or trigger is installed.
 
+The rental security-bond suite now verifies four installed trigger-to-handler bindings, including the original forfeiture authority trigger, its chronology backstop, and both inverse double-settlement guards. It checks current-schema ordinary-table ownership, current-schema zero-argument trigger functions, enabled state, and PostgreSQL row/before/event bitmasks rather than accepting a same-named trigger with the wrong behavior. The Australian refund-authority catalog check additionally requires an ordinary table and a CHECK constraint, not just a matching constraint name and definition fragment. These are checked-in catalog assertions, not evidence of live PostgreSQL execution.
+
 ## Stripe refund reference database integrity
 
 `prisma/migrations/20261028082500-stripe-refund-reference-uniqueness/migration.sql` adds a PostgreSQL-only partial unique index for exact Stripe `re_`-prefixed provider references per organization. The predicate uses `left("providerReference", 3) = 're_'`, not SQL `LIKE 're_%'` (where `_` would be a wildcard). It covers every payment kind and status; `pi_*` authorization/capture references remain shareable within their legitimate booking source. The existing Prisma normal lookup index remains in place. A preflight fails migration when historical duplicate refund references exist and does not rewrite evidence.

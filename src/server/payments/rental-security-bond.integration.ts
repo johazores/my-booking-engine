@@ -261,36 +261,64 @@ test('rental security bond is tenant-scoped, append-only, pickup/cancellation gu
 
   // Ensure the new migration was applied and its guard is enabled on the
   // disposable database. A checked-in SQL file alone does not prove this.
-  const chronologyTriggers = await db.$queryRaw<Array<{ enabled: string }>>`
-    SELECT t.tgenabled::text AS "enabled"
+  // Verify both the original forfeiture authority and the independent
+  // chronology backstop. A trigger name alone does not prove its handler or event.
+  const forfeitureTriggers = await db.$queryRaw<Array<{ name: string; enabled: string; handler: string; eventType: number }>>`
+    SELECT t.tgname AS "name",
+           t.tgenabled::text AS "enabled",
+           p.proname AS "handler",
+           t.tgtype::integer AS "eventType"
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
       JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_proc p ON p.oid = t.tgfoid
+      JOIN pg_namespace pn ON pn.oid = p.pronamespace
      WHERE n.nspname = current_schema()
+       AND pn.nspname = current_schema()
+       AND c.relkind = 'r'
        AND c.relname = 'rental_security_bond_forfeitures'
-       AND t.tgname = 'rental_security_bond_forfeitures_chronology_guard'
+       AND t.tgname IN (
+         'rental_security_bond_forfeitures_authority_guard',
+         'rental_security_bond_forfeitures_chronology_guard'
+       )
+       AND p.pronargs = 0
+       AND p.prorettype = 'pg_catalog.trigger'::regtype
        AND NOT t.tgisinternal
+     ORDER BY t.tgname
   `;
-  assert.deepEqual(chronologyTriggers, [{ enabled: 'O' }]);
+  // tgtype: row=1, before=2, insert=4, delete=8, update=16.
+  assert.deepEqual(forfeitureTriggers, [
+    { name: 'rental_security_bond_forfeitures_authority_guard', enabled: 'O', handler: 'sf_author_rental_security_bond_forfeiture', eventType: 31 },
+    { name: 'rental_security_bond_forfeitures_chronology_guard', enabled: 'O', handler: 'sf_guard_rental_bond_liability_return_chronology', eventType: 7 },
+  ]);
 
   // Check both inverse double-settlement guards on the actual disposable DB.
-  const exclusivityTriggers = await db.$queryRaw<Array<{ name: string; enabled: string }>>`
-    SELECT t.tgname AS "name", t.tgenabled::text AS "enabled"
+  const exclusivityTriggers = await db.$queryRaw<Array<{ name: string; enabled: string; handler: string; eventType: number }>>`
+    SELECT t.tgname AS "name",
+           t.tgenabled::text AS "enabled",
+           p.proname AS "handler",
+           t.tgtype::integer AS "eventType"
       FROM pg_trigger t
       JOIN pg_class c ON c.oid = t.tgrelid
       JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_proc p ON p.oid = t.tgfoid
+      JOIN pg_namespace pn ON pn.oid = p.pronamespace
      WHERE n.nspname = current_schema()
+       AND pn.nspname = current_schema()
+       AND c.relkind = 'r'
        AND (
-       (c.relname = 'rental_security_bond_transactions' AND t.tgname = 'rental_security_bond_transactions_forfeiture_guard')
-       OR (c.relname = 'rental_damage_settlement_transactions' AND t.tgname = 'rental_damage_settlement_transactions_bond_forfeiture_guard')
-     ) AND NOT t.tgisinternal
+         (c.relname = 'rental_security_bond_transactions' AND t.tgname = 'rental_security_bond_transactions_forfeiture_guard')
+         OR (c.relname = 'rental_damage_settlement_transactions' AND t.tgname = 'rental_damage_settlement_transactions_bond_forfeiture_guard')
+       )
+       AND p.pronargs = 0
+       AND p.prorettype = 'pg_catalog.trigger'::regtype
+       AND NOT t.tgisinternal
      ORDER BY t.tgname
   `;
   assert.deepEqual(exclusivityTriggers, [
-    { name: 'rental_damage_settlement_transactions_bond_forfeiture_guard', enabled: 'O' },
-    { name: 'rental_security_bond_transactions_forfeiture_guard', enabled: 'O' },
+    { name: 'rental_damage_settlement_transactions_bond_forfeiture_guard', enabled: 'O', handler: 'sf_guard_rental_damage_settlement_against_bond_forfeiture', eventType: 7 },
+    { name: 'rental_security_bond_transactions_forfeiture_guard', enabled: 'O', handler: 'sf_guard_rental_security_bond_release_after_forfeiture', eventType: 7 },
   ]);
-
 
   // Verify both settlement orderings against the installed PostgreSQL
   // triggers. Rollback must remove the first successful write as well.

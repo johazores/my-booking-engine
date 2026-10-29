@@ -27,12 +27,36 @@ test('commercial settlement catalog assertions target the current schema, real t
   }
 });
 
-test('rental security bond catalog checks cannot match a table in a different schema', () => {
+test('rental security bond catalog checks bind enabled triggers to real tables, functions, and events', () => {
   const file = source('src/server/payments/rental-security-bond.integration.ts');
-  assert.equal((file.match(/JOIN pg_namespace n ON n\.oid = c\.relnamespace/g) ?? []).length, 2);
-  assert.equal((file.match(/n\.nspname = current_schema\(\)/g) ?? []).length, 2);
-  assert.match(file, /assert\.deepEqual\(chronologyTriggers, \[\{ enabled: 'O' \}\]\)/);
-  assert.match(file, /assert\.deepEqual\(exclusivityTriggers, \[/);
+  for (const required of [
+    'JOIN pg_namespace n ON n.oid = c.relnamespace',
+    'n.nspname = current_schema()',
+    'JOIN pg_proc p ON p.oid = t.tgfoid',
+    'JOIN pg_namespace pn ON pn.oid = p.pronamespace',
+    'pn.nspname = current_schema()',
+    "c.relkind = 'r'",
+    'p.pronargs = 0',
+    "p.prorettype = 'pg_catalog.trigger'::regtype",
+    't.tgtype::integer AS "eventType"',
+  ]) {
+    assert.equal(file.split(required).length - 1, 2, required);
+  }
+  assert.ok(file.includes('eventType: 31'));
+  assert.equal(file.split('eventType: 7').length - 1, 3);
+
+  const forfeitureMigration = source('prisma/migrations/20260917060000_rental_security_bond_forfeiture/migration.sql');
+  const chronologyMigration = source('prisma/migrations/20261015013000-rental-bond-liability-return-chronology/migration.sql');
+  for (const [trigger, handler, migration] of [
+    ['rental_security_bond_forfeitures_authority_guard', 'sf_author_rental_security_bond_forfeiture', forfeitureMigration],
+    ['rental_security_bond_forfeitures_chronology_guard', 'sf_guard_rental_bond_liability_return_chronology', chronologyMigration],
+    ['rental_security_bond_transactions_forfeiture_guard', 'sf_guard_rental_security_bond_release_after_forfeiture', forfeitureMigration],
+    ['rental_damage_settlement_transactions_bond_forfeiture_guard', 'sf_guard_rental_damage_settlement_against_bond_forfeiture', forfeitureMigration],
+  ]) {
+    assert.ok(file.includes("name: '" + trigger + "', enabled: 'O', handler: '" + handler + "'"), trigger);
+    assert.ok(migration.includes('CREATE TRIGGER ' + trigger), trigger);
+    assert.ok(migration.includes('EXECUTE FUNCTION ' + handler + '()'), handler);
+  }
 });
 
 test('refund authority constraint catalog check is scoped to the current schema', () => {
@@ -40,6 +64,8 @@ test('refund authority constraint catalog check is scoped to the current schema'
   assert.match(file, /JOIN pg_namespace namespace_row ON namespace_row\.oid = relation_row\.relnamespace/);
   assert.match(file, /namespace_row\.nspname = current_schema\(\)/);
   assert.match(file, /constraint_row\.convalidated/);
+  assert.ok(file.includes("relation_row.relkind = 'r'"));
+  assert.ok(file.includes("constraint_row.contype = 'c'"));
 });
 
 test('Stripe catalog check requires the current schema and ordinary payment table, not search_path fallback', () => {
