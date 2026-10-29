@@ -18,15 +18,21 @@ test('hospitality guest evidence stays retained and terminal after cancellation'
   ]);
 
   const runId = crypto.randomUUID();
-  const admin = await db.user.create({ data: { email: `guest-evidence-admin-${runId}@example.test`, status: 'ACTIVE' } });
-  const organization = await db.organization.create({
-    data: { name: 'Guest Evidence Tenant', slug: `guest-evidence-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' },
-  });
-  await db.organizationMembership.create({
-    data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
-  });
-
+  const adminId = crypto.randomUUID();
+  const organizationId = crypto.randomUUID();
   try {
+    const databaseClock = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const currentTime = databaseClock[0]?.now;
+    assert.ok(currentTime instanceof Date, 'PostgreSQL clock is required for future booking fixtures');
+    const dateAt = (days: number) => new Date(currentTime.getTime() + days * 86_400_000);
+    const dateOnly = (days: number) => dateAt(days).toISOString().slice(0, 10);
+    const admin = await db.user.create({ data: { id: adminId, email: `guest-evidence-admin-${runId}@example.test`, status: 'ACTIVE' } });
+    const organization = await db.organization.create({
+      data: { id: organizationId, name: 'Guest Evidence Tenant', slug: `guest-evidence-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' },
+    });
+    await db.organizationMembership.create({
+      data: { organizationId: organization.id, userId: admin.id, status: 'ACTIVE', role: 'ADMIN' },
+    });
     const customer = await db.customer.create({
       data: { organizationId: organization.id, firstName: 'Evidence', lastName: 'Customer', email: `guest-evidence-${runId}@example.test` },
     });
@@ -52,19 +58,19 @@ test('hospitality guest evidence stays retained and terminal after cancellation'
         propertyId: property.id,
         roomTypeId: roomType.id,
         ratePlanId: ratePlan.id,
-        startDate: '2026-09-01',
-        endDate: '2026-09-30',
+        startDate: dateOnly(0),
+        endDate: dateOnly(29),
         amount: '100.00',
       },
     });
 
-    const confirmationNow = new Date('2026-09-01T00:00:00.000Z');
+    const confirmationNow = dateAt(0);
     const request = {
       propertyId: property.id,
       roomTypeId: roomType.id,
       ratePlanId: ratePlan.id,
-      arrivalDate: '2026-09-10',
-      departureDate: '2026-09-12',
+      arrivalDate: dateOnly(9),
+      departureDate: dateOnly(11),
       quantity: 1,
     };
     const hold = await holds.createHospitalityAvailabilityHold({
@@ -130,7 +136,7 @@ test('hospitality guest evidence stays retained and terminal after cancellation'
       organizationId: organization.id,
       actorUserId: admin.id,
       bookingId: booking.id,
-      now: new Date('2026-09-02T00:00:00.000Z'),
+      now: dateAt(1),
     });
     assert.equal(cancelled.status, 'CANCELLED');
 
@@ -165,23 +171,27 @@ test('hospitality guest evidence stays retained and terminal after cancellation'
       1,
     );
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: organization.id } });
-    await db.$transaction(async (transaction) => {
-      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organization.id } });
-      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organization.id } });
-    });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoom.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organization.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organization.id } });
-    await db.customer.deleteMany({ where: { organizationId: organization.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: organization.id } });
-    await db.organization.delete({ where: { id: organization.id } });
-    await db.user.delete({ where: { id: admin.id } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId } });
+      await db.$transaction(async (transaction) => {
+        await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId } });
+        await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId } });
+        await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId } });
+        await transaction.hospitalityBooking.deleteMany({ where: { organizationId } });
+      });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId } });
+      await db.hospitalityBaseRate.deleteMany({ where: { organizationId } });
+      await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationId } });
+      await db.hospitalityRoom.deleteMany({ where: { organizationId } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationId } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationId } });
+      await db.customer.deleteMany({ where: { organizationId } });
+      await db.organizationMembership.deleteMany({ where: { organizationId } });
+      await db.organization.deleteMany({ where: { id: organizationId } });
+      await db.user.deleteMany({ where: { id: adminId } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

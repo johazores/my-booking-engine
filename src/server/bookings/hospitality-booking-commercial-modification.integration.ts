@@ -16,18 +16,24 @@ test('commercial booking modification is tenant-safe, capacity-safe, price-safe,
     import('../pricing/hospitality-pricing-service.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `commercial-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const staffA = await db.user.create({ data: { email: `commercial-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `commercial-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Commercial Tenant A', slug: `commercial-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  const organizationB = await db.organization.create({ data: { name: 'Commercial Tenant B', slug: `commercial-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
-  await db.organizationMembership.createMany({ data: [
-    { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
-    { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
-    { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
-  ] });
-
+  const userIds = Array.from({ length: 3 }, () => crypto.randomUUID());
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
   try {
+    const databaseClock = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const currentTime = databaseClock[0]?.now;
+    assert.ok(currentTime instanceof Date, 'PostgreSQL clock is required for future booking fixtures');
+    const dateAt = (days: number) => new Date(currentTime.getTime() + days * 86_400_000);
+    const dateOnly = (days: number) => dateAt(days).toISOString().slice(0, 10);
+    const adminA = await db.user.create({ data: { id: userIds[0], email: `commercial-admin-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const staffA = await db.user.create({ data: { id: userIds[1], email: `commercial-staff-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const adminB = await db.user.create({ data: { id: userIds[2], email: `commercial-admin-b-${runId}@example.test`, status: 'ACTIVE' } });
+    const organizationA = await db.organization.create({ data: { id: organizationIds[0], name: 'Commercial Tenant A', slug: `commercial-a-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+    const organizationB = await db.organization.create({ data: { id: organizationIds[1], name: 'Commercial Tenant B', slug: `commercial-b-${runId}`.slice(0, 63), kind: 'HOTEL', currency: 'USD' } });
+    await db.organizationMembership.createMany({ data: [
+      { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
+      { organizationId: organizationA.id, userId: staffA.id, status: 'ACTIVE', role: 'STAFF' },
+      { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
+    ] });
     const customer = await db.customer.create({ data: { organizationId: organizationA.id, firstName: 'Commercial', lastName: 'Guest', email: `commercial-guest-${runId}@example.test` } });
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Commercial Hotel', code: 'COM', timezone: 'UTC', countryCode: 'US' } });
     const standard = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Standard', code: 'STD', maxOccupancy: 2 } });
@@ -46,26 +52,26 @@ test('commercial booking modification is tenant-safe, capacity-safe, price-safe,
     const standardRate = await pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      baseRate: { propertyId: property.id, roomTypeId: standard.id, ratePlanId: flexible.id, startDate: '2026-09-01', endDate: '2026-10-31', amount: '100.00' },
+      baseRate: { propertyId: property.id, roomTypeId: standard.id, ratePlanId: flexible.id, startDate: dateOnly(0), endDate: dateOnly(60), amount: '100.00' },
     });
     const targetRate = await pricing.createHospitalityBaseRate({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
-      baseRate: { propertyId: property.id, roomTypeId: twin.id, ratePlanId: twinRate.id, startDate: '2026-09-01', endDate: '2026-10-31', amount: '50.00' },
+      baseRate: { propertyId: property.id, roomTypeId: twin.id, ratePlanId: twinRate.id, startDate: dateOnly(0), endDate: dateOnly(60), amount: '50.00' },
     });
     const standardAddon = await db.hospitalityAddon.create({ data: {
       organizationId: organizationA.id, propertyId: property.id, roomTypeId: standard.id, ratePlanId: flexible.id,
       name: 'Breakfast', code: 'BREAKFAST_STD', pricingModel: 'PER_BOOKING', amountMinor: 1_000n, currency: 'USD', maxQuantity: 1,
-      startDate: new Date('2026-09-01T00:00:00.000Z'), endDate: new Date('2026-10-31T00:00:00.000Z'),
+      startDate: dateAt(0), endDate: dateAt(60),
     } });
     const twinAddon = await db.hospitalityAddon.create({ data: {
       organizationId: organizationA.id, propertyId: property.id, roomTypeId: twin.id, ratePlanId: twinRate.id,
       name: 'Breakfast', code: 'BREAKFAST_TWIN', pricingModel: 'PER_BOOKING', amountMinor: 1_000n, currency: 'USD', maxQuantity: 1,
-      startDate: new Date('2026-09-01T00:00:00.000Z'), endDate: new Date('2026-10-31T00:00:00.000Z'),
+      startDate: dateAt(0), endDate: dateAt(60),
     } });
 
-    const now = new Date('2026-09-01T00:00:00.000Z');
-    const originalRequest = { propertyId: property.id, roomTypeId: standard.id, ratePlanId: flexible.id, arrivalDate: '2026-09-10', departureDate: '2026-09-12', quantity: 1 };
+    const now = dateAt(0);
+    const originalRequest = { propertyId: property.id, roomTypeId: standard.id, ratePlanId: flexible.id, arrivalDate: dateOnly(9), departureDate: dateOnly(11), quantity: 1 };
     const originalAddons = [{ addonId: standardAddon.id, quantity: 1 }];
     const hold = await holds.createHospitalityAvailabilityHold({ organizationId: organizationA.id, actorUserId: adminA.id, now, hold: { idempotencyKey: 'hold:commercial-main', request: originalRequest } });
     const quote = await pricing.quoteHospitalityPrice({ organizationId: organizationA.id, actorUserId: adminA.id, request: originalRequest, addonSelections: originalAddons });
@@ -131,26 +137,30 @@ test('commercial booking modification is tenant-safe, capacity-safe, price-safe,
     assert.equal(JSON.stringify(events).includes('commercial-guest-'), false);
     assert.ok(standardRate.id);
   } finally {
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.paymentCheckoutSession.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.paymentTransaction.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.$transaction(async (transaction) => {
-      await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationId: organizationA.id } });
-      await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationId: organizationA.id } });
-      await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationId: organizationA.id } });
-      await transaction.hospitalityBooking.deleteMany({ where: { organizationId: organizationA.id } });
-    });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityAddon.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityBaseRate.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoom.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.customer.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, staffA.id, adminB.id] } } });
+    try {
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.paymentCheckoutSession.deleteMany({ where: { organizationIds[0] } });
+      await db.paymentTransaction.deleteMany({ where: { organizationIds[0] } });
+      await db.$transaction(async (transaction) => {
+        await transaction.hospitalityBookingPricingEvidence.deleteMany({ where: { organizationIds[0] } });
+        await transaction.hospitalityBookingGuest.deleteMany({ where: { organizationIds[0] } });
+        await transaction.hospitalityBookingAllocation.deleteMany({ where: { organizationIds[0] } });
+        await transaction.hospitalityBooking.deleteMany({ where: { organizationIds[0] } });
+      });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityAddon.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityBaseRate.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoom.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationIds[0] } });
+      await db.customer.deleteMany({ where: { organizationIds[0] } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.organization.deleteMany({ where: { id: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.user.deleteMany({ where: { id: { in: [userIds[0], userIds[1], userIds[2]] } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

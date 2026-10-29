@@ -22,10 +22,10 @@ test('public hospitality holds are tenant-bound, idempotent, owned, audited, and
     import('./public-booking-capability.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const organizationA = await db.organization.create({ data: { name: 'Public Hold Tenant A', slug: `public-hold-a-${runId}`.slice(0, 63), kind: 'HOTEL' } });
-  const organizationB = await db.organization.create({ data: { name: 'Public Hold Tenant B', slug: `public-hold-b-${runId}`.slice(0, 63), kind: 'HOTEL' } });
-
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
   try {
+    const organizationA = await db.organization.create({ data: { id: organizationIds[0], name: 'Public Hold Tenant A', slug: `public-hold-a-${runId}`.slice(0, 63), kind: 'HOTEL' } });
+    const organizationB = await db.organization.create({ data: { id: organizationIds[1], name: 'Public Hold Tenant B', slug: `public-hold-b-${runId}`.slice(0, 63), kind: 'HOTEL' } });
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Public Hold Hotel', code: 'PHH', timezone: 'UTC', countryCode: 'US' } });
     const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Room', code: 'ROOM', maxOccupancy: 2 } });
     await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
@@ -133,16 +133,20 @@ test('public hospitality holds are tenant-bound, idempotent, owned, audited, and
       { name: 'AvailabilityHoldUnavailableError' },
     );
   } finally {
-    await db.publicBookingAuditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.publicBookingHoldOwnership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.publicBookingPrincipal.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoom.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
+    try {
+      await db.publicBookingAuditEvent.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.publicBookingHoldOwnership.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.publicBookingPrincipal.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoom.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationIds[0] } });
+      await db.organization.deleteMany({ where: { id: { in: [organizationIds[0], organizationIds[1]] } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });

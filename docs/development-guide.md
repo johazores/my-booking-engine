@@ -99,6 +99,8 @@ The five non-financial rental database integration suites for inventory integrit
 
 The Stripe payment, refund, and signed-refund-webhook database integration suites register cleanup before their first fixture write. They preassign unique user and organization IDs so partial setup failures can still be cleaned up after the test, even when an insert committed but its response failed. Cleanup is scoped to those IDs, deletes tenant-owned records in dependency order, and never deletes shared tenant data. The Stripe payment suite separately restores its mocked fetch in `finally`. This cleanup does not replace the requirement to use an explicitly disposable PostgreSQL target.
 
+The ten hospitality booking integrity, staff modification, and public capability PostgreSQL suites now guard fixture setup from the first insert with preassigned tenant/user IDs. Their existing tenant-scoped, dependency-ordered teardown runs on partial setup failures as well as completed tests, and Prisma disconnects even if teardown fails. Eight of these suites also derive stay/rate/booking dates from PostgreSQL `clock_timestamp()` instead of fixed September/October 2026 fixture dates, keeping test chronology valid as time advances. The public hold/confirmation suites already use relative dates. `scripts/hospitality-booking-database-fixture-contract.test.mjs` protects these source-level boundaries; this does not substitute for actual Node 24 and disposable PostgreSQL migration/integration execution.
+
 ## Validation
 
 Before considering a coherent slice complete, run the relevant available checks:

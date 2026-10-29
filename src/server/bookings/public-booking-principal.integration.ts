@@ -11,22 +11,28 @@ test('public booking principals, hold ownership, and audit attribution are tenan
     import('../availability/hospitality-availability-hold-service.ts'),
   ]);
   const runId = crypto.randomUUID();
-  const adminA = await db.user.create({ data: { email: `public-principal-a-${runId}@example.test`, status: 'ACTIVE' } });
-  const adminB = await db.user.create({ data: { email: `public-principal-b-${runId}@example.test`, status: 'ACTIVE' } });
-  const organizationA = await db.organization.create({ data: { name: 'Public Principal Tenant A', slug: `public-principal-a-${runId}`.slice(0, 63), kind: 'HOTEL' } });
-  const organizationB = await db.organization.create({ data: { name: 'Public Principal Tenant B', slug: `public-principal-b-${runId}`.slice(0, 63), kind: 'HOTEL' } });
-  await db.organizationMembership.createMany({ data: [
-    { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
-    { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
-  ] });
-
+  const userIds = Array.from({ length: 2 }, () => crypto.randomUUID());
+  const organizationIds = Array.from({ length: 2 }, () => crypto.randomUUID());
   try {
+    const databaseClock = await db.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    const currentTime = databaseClock[0]?.now;
+    assert.ok(currentTime instanceof Date, 'PostgreSQL clock is required for future booking fixtures');
+    const dateAt = (days: number) => new Date(currentTime.getTime() + days * 86_400_000);
+    const dateOnly = (days: number) => dateAt(days).toISOString().slice(0, 10);
+    const adminA = await db.user.create({ data: { id: userIds[0], email: `public-principal-a-${runId}@example.test`, status: 'ACTIVE' } });
+    const adminB = await db.user.create({ data: { id: userIds[1], email: `public-principal-b-${runId}@example.test`, status: 'ACTIVE' } });
+    const organizationA = await db.organization.create({ data: { id: organizationIds[0], name: 'Public Principal Tenant A', slug: `public-principal-a-${runId}`.slice(0, 63), kind: 'HOTEL' } });
+    const organizationB = await db.organization.create({ data: { id: organizationIds[1], name: 'Public Principal Tenant B', slug: `public-principal-b-${runId}`.slice(0, 63), kind: 'HOTEL' } });
+    await db.organizationMembership.createMany({ data: [
+      { organizationId: organizationA.id, userId: adminA.id, status: 'ACTIVE', role: 'ADMIN' },
+      { organizationId: organizationB.id, userId: adminB.id, status: 'ACTIVE', role: 'ADMIN' },
+    ] });
     const property = await db.hospitalityProperty.create({ data: { organizationId: organizationA.id, name: 'Public Principal Hotel', code: 'PPH', timezone: 'UTC', countryCode: 'US' } });
     const roomType = await db.hospitalityRoomType.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Room', code: 'ROOM', maxOccupancy: 2 } });
     await db.hospitalityRoom.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, code: '101' } });
     const ratePlan = await db.hospitalityRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, name: 'Flexible', code: 'FLEX' } });
     await db.hospitalityRoomTypeRatePlan.create({ data: { organizationId: organizationA.id, propertyId: property.id, roomTypeId: roomType.id, ratePlanId: ratePlan.id } });
-    const now = new Date();
+    const now = currentTime;
     const hold = await holds.createHospitalityAvailabilityHold({
       organizationId: organizationA.id,
       actorUserId: adminA.id,
@@ -37,8 +43,8 @@ test('public booking principals, hold ownership, and audit attribution are tenan
           propertyId: property.id,
           roomTypeId: roomType.id,
           ratePlanId: ratePlan.id,
-          arrivalDate: '2026-09-10',
-          departureDate: '2026-09-11',
+          arrivalDate: dateOnly(9),
+          departureDate: dateOnly(10),
           quantity: 1,
         },
       },
@@ -81,18 +87,22 @@ test('public booking principals, hold ownership, and audit attribution are tenan
       }),
     );
   } finally {
-    await db.publicBookingAuditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.publicBookingHoldOwnership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.publicBookingPrincipal.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRatePlan.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoom.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityRoomType.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.hospitalityProperty.deleteMany({ where: { organizationId: organizationA.id } });
-    await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationA.id, organizationB.id] } } });
-    await db.organization.deleteMany({ where: { id: { in: [organizationA.id, organizationB.id] } } });
-    await db.user.deleteMany({ where: { id: { in: [adminA.id, adminB.id] } } });
+    try {
+      await db.publicBookingAuditEvent.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.publicBookingHoldOwnership.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.publicBookingPrincipal.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.auditEvent.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.hospitalityAvailabilityHold.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoomTypeRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRatePlan.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoom.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityRoomType.deleteMany({ where: { organizationIds[0] } });
+      await db.hospitalityProperty.deleteMany({ where: { organizationIds[0] } });
+      await db.organizationMembership.deleteMany({ where: { organizationId: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.organization.deleteMany({ where: { id: { in: [organizationIds[0], organizationIds[1]] } } });
+      await db.user.deleteMany({ where: { id: { in: [userIds[0], userIds[1]] } } });
+    } finally {
+      await db.$disconnect();
+    }
   }
 });
