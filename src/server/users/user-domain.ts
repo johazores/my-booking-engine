@@ -11,7 +11,7 @@ const userStatusTransitions: Record<
   ARCHIVED: [],
 };
 
-/** Reject invisible control, unpaired surrogate, and bidi-override characters in identity text. */
+/** Reject hidden identity formatting, directional controls, and unpaired surrogates. */
 export function hasUnsafeIdentityControls(value: string) {
   for (const character of value) {
     const codePoint = character.codePointAt(0)!;
@@ -20,8 +20,11 @@ export function hasUnsafeIdentityControls(value: string) {
       (codePoint >= 0x7f && codePoint <= 0x9f) ||
       (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
       (codePoint >= 0x2028 && codePoint <= 0x202e) ||
-      (codePoint >= 0x2066 && codePoint <= 0x2069) ||
-      codePoint === 0x200b || codePoint === 0x2060 || codePoint === 0xfeff
+      (codePoint >= 0x2060 && codePoint <= 0x206f) ||
+      codePoint === 0x00ad || codePoint === 0x061c ||
+      codePoint === 0x180e || codePoint === 0x200b ||
+      codePoint === 0x200e || codePoint === 0x200f ||
+      codePoint === 0xfeff
     ) return true;
   }
   return false;

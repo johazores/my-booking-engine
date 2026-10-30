@@ -42,7 +42,12 @@ test('identity email validation rejects hidden controls without restricting ordi
   assert.equal(hasUnsafeIdentityControls('a\u0000b'), true);
   assert.equal(hasUnsafeIdentityControls('a\u202eb'), true);
   assert.equal(hasUnsafeIdentityControls('Renée 李 🐈'), false);
-  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\ufeffb@example.test']) {
+  assert.equal(hasUnsafeIdentityControls('أحمد नमस्ते'), false);
+  // Preserve ordinary Unicode while denying hidden formatting and bidi marks.
+  for (const hidden of ['\u00ad', '\u061c', '\u180e', '\u200e', '\u200f', '\u2061', '\u206a', '\u206f']) {
+    assert.equal(hasUnsafeIdentityControls('a' + hidden + 'b'), true);
+  }
+  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\ufeffb@example.test', 'a\u200eb@example.test', 'a\u061cb@example.test', 'a\u00adb@example.test', 'a\u206fb@example.test']) {
     assert.equal(validateUserEmail(email), false);
     assert.throws(() => createCanonicalUserEmail(email), /valid canonical email/);
   }

@@ -6,11 +6,11 @@ SF uses first-party email/password authentication with opaque database-backed se
 
 ## Password credentials
 
-- Email identities use the canonical trimmed-lowercase user email rule. Control characters, bidi overrides, and unpaired Unicode surrogates are rejected before credential admission; ordinary Unicode names remain supported.
+- Email identities use the canonical trimmed-lowercase user email rule. Control characters, hidden formatting (including soft hyphens and directional marks), bidi controls, and unpaired Unicode surrogates are rejected before credential admission; ordinary Unicode names remain supported.
 - Passwords are never trimmed or normalized.
 - Passwords must contain 12–128 Unicode characters.
 - Password hashes use Node.js scrypt with a random 16-byte salt, versioned parameters, and a 64-byte derived key.
-- Only encoded password hashes are stored.
+- Only encoded password hashes are stored. Verification rejects noncanonical base64url salt/key encodings and noncanonical scrypt parameter strings rather than accepting decoder aliases or corrupted credential records.
 - Credential lookup requires an `ACTIVE` user.
 - Failed sign-in responses remain generic and do not reveal whether an email exists.
 

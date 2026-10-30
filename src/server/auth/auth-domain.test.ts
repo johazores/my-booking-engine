@@ -45,6 +45,21 @@ test('password hashes are salted, versioned, and verify only the original secret
   assert.equal(await verifyPassword(password, first), true);
   assert.equal(await verifyPassword('not the password', first), false);
   assert.equal(await verifyPassword(password, 'not-a-supported-hash'), false);
+  assert.equal(await verifyPassword(password, null as unknown as string), false);
+  const parts = first.split('$');
+  const altered = (index: number, value: string) =>
+    parts.map((part, partIndex) => partIndex === index ? value : part).join('$');
+  assert.equal(await verifyPassword(password, altered(2, '0' + parts[2])), false);
+  assert.equal(await verifyPassword(password, altered(5, parts[5] + '=')), false);
+  assert.equal(await verifyPassword(password, altered(6, parts[6] + '=')), false);
+  // The last base64url character has unused bits; the decoder tolerates aliases.
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const last = parts[6].at(-1)!;
+  const alias = alphabet[alphabet.indexOf(last) ^ 1];
+  assert.equal(await verifyPassword(password, altered(6, parts[6].slice(0, -1) + alias)), false);
+  const saltLast = parts[5].at(-1)!;
+  const saltAlias = alphabet[alphabet.indexOf(saltLast) ^ 1];
+  assert.equal(await verifyPassword(password, altered(5, parts[5].slice(0, -1) + saltAlias)), false);
 });
 
 test('session tokens have high entropy and only their digest needs persistence', () => {
@@ -114,10 +129,10 @@ test('canonical session tokens reject noncanonical, oversized, and malformed bea
 
 test('authentication validators reject unsafe identity controls and malformed runtime inputs', () => {
   const password = 'x'.repeat(12);
-  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test']) {
+  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\u200eb@example.test', 'a\u061cb@example.test', 'a\u00adb@example.test']) {
     assert.throws(() => validateSignInInput({ email, password }), AuthValidationError);
   }
-  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root']) {
+  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root', 'Admin\u200fRoot', 'Admin\u206aRoot', 'Admin\u00adRoot']) {
     assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName }), AuthValidationError);
   }
   assert.equal(validateSignUpInput({ email: 'user@example.test', password, displayName: 'Renée 李' }).displayName, 'Renée 李');

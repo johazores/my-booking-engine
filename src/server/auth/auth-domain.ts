@@ -96,6 +96,7 @@ export async function hashPassword(password: string) {
 }
 
 export async function verifyPassword(password: string, encodedHash: string) {
+  if (typeof encodedHash !== 'string') return false;
   const parts = encodedHash.split('$');
   if (parts.length !== 7 || parts[0] !== 'scrypt' || parts[1] !== PASSWORD_HASH_VERSION) {
     return false;
@@ -103,17 +104,22 @@ export async function verifyPassword(password: string, encodedHash: string) {
 
   const [, , nValue, rValue, pValue, saltValue, hashValue] = parts;
   if (
-    Number(nValue) !== SCRYPT_N ||
-    Number(rValue) !== SCRYPT_R ||
-    Number(pValue) !== SCRYPT_P
+    nValue !== String(SCRYPT_N) ||
+    rValue !== String(SCRYPT_R) ||
+    pValue !== String(SCRYPT_P)
   ) {
     return false;
   }
 
   try {
+    // Reject decoder-tolerated aliases, padding, and corrupted stored hashes.
+    if (!/^[A-Za-z0-9_-]{22}$/.test(saltValue) ||
+        !/^[A-Za-z0-9_-]{86}$/.test(hashValue)) return false;
     const salt = Buffer.from(saltValue, 'base64url');
     const expected = Buffer.from(hashValue, 'base64url');
-    if (salt.length !== 16 || expected.length !== SCRYPT_KEY_LENGTH) {
+    if (salt.length !== 16 || expected.length !== SCRYPT_KEY_LENGTH ||
+        salt.toString('base64url') !== saltValue ||
+        expected.toString('base64url') !== hashValue) {
       return false;
     }
 
