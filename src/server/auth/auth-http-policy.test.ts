@@ -5,6 +5,7 @@ import {
   AUTH_FORM_MAX_BYTES,
   applyAuthResponseNoStore,
   getAuthRequiredRedirect,
+  getAuthRateLimitMessage,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
 } from './auth-http-policy.ts';
@@ -78,4 +79,14 @@ test('protected auth guard distinguishes missing and invalid sessions', () => {
     getAuthRequiredRedirect({ hadSessionCookie: true, session: { userId: 'active' } }),
     null,
   );
+});
+
+test('authentication rate-limit feedback shows bounded database wait without trusting query input', () => {
+  assert.equal(getAuthRateLimitMessage('1'), 'Too many attempts. Please wait about 1 minute before trying again.');
+  assert.equal(getAuthRateLimitMessage('60'), 'Too many attempts. Please wait about 1 minute before trying again.');
+  assert.equal(getAuthRateLimitMessage('61'), 'Too many attempts. Please wait about 2 minutes before trying again.');
+  assert.equal(getAuthRateLimitMessage('900'), 'Too many attempts. Please wait about 15 minutes before trying again.');
+  for (const invalid of [undefined, null, '', '0', '901', '-1', '1.5', '1e2', '01', ' 60 ', ['60'], 60]) {
+    assert.equal(getAuthRateLimitMessage(invalid), 'Too many attempts. Please wait before trying again.');
+  }
 });

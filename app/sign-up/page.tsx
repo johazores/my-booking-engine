@@ -3,17 +3,17 @@ import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
 import { readAuthSession } from '@/server/auth/auth-http.ts';
+import { getAuthRateLimitMessage } from '@/server/auth/auth-http-policy.ts';
 
 const messages: Record<string, string> = {
   validation: 'Check your details. Passwords must contain 12 to 128 characters.',
-  'rate-limited': 'Too many attempts. Please wait before trying again.',
   server: 'Your account could not be created. Please try again.',
 };
 
 export default async function SignUpPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; retry?: string }>;
 }) {
   const session = await readAuthSession();
   if (session) {
@@ -21,7 +21,9 @@ export default async function SignUpPage({
   }
 
   const params = await searchParams;
-  const message = params.error ? messages[params.error] : undefined;
+  const message = params.error === 'rate-limited'
+    ? getAuthRateLimitMessage(params.retry)
+    : params.error ? messages[params.error] : undefined;
 
   return (
     <main className="sf-auth-shell">

@@ -55,7 +55,10 @@ export async function POST(request: Request) {
     });
     const attempt = await reserveAuthAttempt('sign-up', registration.email);
     if (!attempt.allowed) {
-      const response = NextResponse.redirect(new URL('/sign-up?error=rate-limited', request.url), 303);
+      const redirectUrl = new URL('/sign-up', request.url);
+      redirectUrl.searchParams.set('error', 'rate-limited');
+      redirectUrl.searchParams.set('retry', String(attempt.retryAfterSeconds));
+      const response = NextResponse.redirect(redirectUrl, 303);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
       return finish(response, 'rejected');
     }

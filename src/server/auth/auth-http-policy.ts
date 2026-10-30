@@ -1,3 +1,5 @@
+import { AUTH_ATTEMPT_WINDOW_SECONDS } from './auth-abuse-domain.ts';
+
 /** Credential forms need far less than the general 64 KiB mutation limit. */
 export const AUTH_FORM_MAX_BYTES = 8 * 1024;
 
@@ -44,4 +46,14 @@ export function getAuthRequiredRedirect(state: AuthSessionStateLike) {
   return state.hadSessionCookie
     ? '/sign-in?error=session'
     : '/sign-in?error=required';
+}
+
+/** Browser redirects lose Retry-After headers; this value is informational only. */
+export function getAuthRateLimitMessage(retryAfter: unknown) {
+  const generic = 'Too many attempts. Please wait before trying again.';
+  if (typeof retryAfter !== 'string' || !/^[1-9][0-9]{0,2}$/.test(retryAfter)) return generic;
+  const seconds = Number(retryAfter);
+  if (seconds > AUTH_ATTEMPT_WINDOW_SECONDS) return generic;
+  const minutes = Math.ceil(seconds / 60);
+  return `Too many attempts. Please wait about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} before trying again.`;
 }

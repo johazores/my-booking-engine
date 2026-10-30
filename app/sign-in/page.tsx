@@ -3,24 +3,26 @@ import { redirect } from 'next/navigation';
 
 import { BrandMark } from '@/components/brand-mark';
 import { readAuthSession } from '@/server/auth/auth-http.ts';
+import { getAuthRateLimitMessage } from '@/server/auth/auth-http-policy.ts';
 
 const messages: Record<string, string> = {
   required: 'Sign in to continue.',
   session: 'Your session expired or is no longer valid. Sign in again.',
   credentials: 'The email or password is incorrect.',
   validation: 'Enter a valid email address and password.',
-  'rate-limited': 'Too many attempts. Please wait before trying again.',
   server: 'Sign in could not be completed. Please try again.',
 };
 
-export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; status?: string }> }) {
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string; status?: string; retry?: string }> }) {
   const session = await readAuthSession();
   if (session) {
     redirect('/account');
   }
 
   const params = await searchParams;
-  const message = params.error ? messages[params.error] : undefined;
+  const message = params.error === 'rate-limited'
+    ? getAuthRateLimitMessage(params.retry)
+    : params.error ? messages[params.error] : undefined;
 
   return (
     <main className="sf-auth-shell">
