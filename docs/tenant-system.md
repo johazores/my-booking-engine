@@ -41,6 +41,8 @@ A reusable server-side tenant scope boundary lives in `src/server/tenancy/tenant
 
 Dependency-free tests cover tenant-scope and lifecycle rules, while the guarded PostgreSQL integration suite exercises real Tenant A/Tenant B isolation and protected workflows. Checked-in database scenarios are not claimed as executed until `npm run test:database` runs successfully against an explicitly acknowledged disposable PostgreSQL target.
 
+The active-organization browser cookie is only a tenant preference and is revalidated against the current user on every protected read. Successful sign-in, sign-up, and sign-out expire the previous identity's preference; successful organization creation and selection write a new preference only after authorized persistence or membership lookup. All five cookie-transition POST endpoints set `Cache-Control: no-store` on success and failure responses. Neither cookie possession nor cache policy substitutes for tenant membership and capability checks.
+
 ## Required security model
 
 Every protected operation validates, as applicable:

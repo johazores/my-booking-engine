@@ -8,7 +8,7 @@
 - Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted.
 - Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests.
 - Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
-- All credential/sign-out POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
+- All credential/sign-out and organization-create/select POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
 - Authentication mutations require exact same-origin form submissions and supported browser form media types.
 - Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user.
 - Tenant organization lookup requires an active organization, active membership, and active user.
