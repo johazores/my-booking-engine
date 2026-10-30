@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { CustomerValidationError } from '@/server/customers/customer-domain.ts';
 import {
@@ -16,7 +21,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
   const observation = createRequestObservation(request, { operation: 'customer.deidentify' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -26,18 +31,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
 
   let session: Awaited<ReturnType<typeof readAuthSession>>;
   try { session = await readAuthSession(); } catch { return finish(new Response('Internal Server Error', { status: 500 })); }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try { activeContext = await readActiveOrganizationContext(session.user.id); } catch { return finish(new Response('Internal Server Error', { status: 500 })); }
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/customers?error=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/customers?error=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   const routeParams = await params;
   const customerId = routeParams['customer-id'];
   let formData: FormData;
   try { formData = await readBoundedFormDataOrThrow(request); } catch {
-    return finish(NextResponse.redirect(new URL(`/customers/${customerId}?error=deidentify-confirmation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?error=deidentify-confirmation`), 'rejected');
   }
   const confirmation = formData.get('confirmation');
 
@@ -48,7 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
       customerId,
       confirmation: typeof confirmation === 'string' ? confirmation : '',
     });
-    return finish(NextResponse.redirect(new URL(`/customers/${customerId}?status=deidentified`, request.url), 303));
+    return finish(redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?status=deidentified`));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -60,7 +65,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
             ? 'unavailable'
             : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/customers/${customerId}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

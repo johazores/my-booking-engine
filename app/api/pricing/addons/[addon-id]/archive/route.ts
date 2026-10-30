@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { archiveHospitalityAddon } from '@/server/pricing/hospitality-addon-service.ts';
 import { pricingErrorCode, pricingErrorTarget, pricingFormField } from '@/server/pricing/pricing-http.ts';
@@ -11,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ad
   const observation = createRequestObservation(request, { operation: 'pricing.addon.archive' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -25,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ad
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try {
@@ -34,7 +39,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ad
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
   if (!activeContext.organization) {
-    return finish(NextResponse.redirect(new URL('/pricing?error=tenant', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/pricing?error=tenant'), 'rejected');
   }
   organizationId = activeContext.organization.id;
 
@@ -43,7 +48,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ad
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL('/pricing?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/pricing?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -55,12 +60,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'ad
       propertyId,
       addonId: routeParams['addon-id'],
     });
-    return finish(NextResponse.redirect(new URL(`/pricing/${propertyId}/addons?status=addon-archived`, request.url), 303));
+    return finish(redirectToLocalPath(`/pricing/${encodeURIComponent(propertyId)}/addons?status=addon-archived`));
   } catch (error) {
     const target = pricingErrorTarget(propertyId, 'addons');
     const code = pricingErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${target}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${target}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

@@ -1,6 +1,11 @@
-import { NextResponse } from 'next/server';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { IntegrationUnavailableError } from '@/server/integrations/integration-service.ts';
 import { testStripeIntegrationConnection } from '@/server/integrations/stripe-integration.ts';
@@ -19,7 +24,7 @@ export async function POST(request: Request) {
   const observation = createRequestObservation(request, { operation: 'integration.stripe.connection-test' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId, provider: 'stripe' },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -28,9 +33,9 @@ export async function POST(request: Request) {
   if (!isSupportedAuthFormRequest(request)) return finish(new Response('Unsupported Media Type', { status: 415 }));
 
   const session = await readAuthSession();
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/integrations?error=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/integrations?error=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   try {
@@ -41,7 +46,7 @@ export async function POST(request: Request) {
     const query = resultQuery[result.status] ?? 'health-invalid';
     const parameter = result.status === 'HEALTHY' ? 'status' : 'error';
     return finish(
-      NextResponse.redirect(new URL(`/integrations?${parameter}=${query}`, request.url), 303),
+      redirectToLocalPath(`/integrations?${parameter}=${query}`),
       result.status === 'HEALTHY' ? undefined : 'rejected',
     );
   } catch (error) {
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
         ? 'unavailable'
         : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/integrations?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

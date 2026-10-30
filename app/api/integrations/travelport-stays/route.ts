@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
 import { FormBodyValidationError, readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { saveIntegration } from '@/server/integrations/integration-service.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
@@ -17,7 +22,7 @@ export async function POST(request: Request) {
   const observation = createRequestObservation(request, { operation: 'integration.travelport-stays.configure' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId, provider: 'travelport-stays' },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -26,9 +31,9 @@ export async function POST(request: Request) {
   if (!isSupportedAuthFormRequest(request)) return finish(new Response('Unsupported Media Type', { status: 415 }));
 
   const session = await readAuthSession();
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/integrations?error=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/integrations?error=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   try {
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
       capabilities: configuration.capabilities,
       credentials: configuration.credentials,
     });
-    return finish(NextResponse.redirect(new URL('/integrations?status=travelport-saved', request.url), 303));
+    return finish(redirectToLocalPath('/integrations?status=travelport-saved'));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
           ? 'travelport-validation'
         : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/integrations?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

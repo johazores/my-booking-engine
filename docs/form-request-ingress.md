@@ -43,3 +43,9 @@ The shared JSON/form deadline reader now rejects nonconforming read results (inc
 ## Stable stream-result snapshots
 
 Form ingress shares the JSON deadline reader, which now materializes each accepted read result before the form parser consumes it. A nonconforming reader cannot supply different `done` or `value` properties on a second access after validation. Completed results never access `value`. Existing same-origin, tenant, form-field, streamed-size, and timeout policies are unchanged. Focused accessor regressions are checked in; full Node 24 validation remains outstanding.
+
+## Management browser redirects and cache policy
+
+Customer, hospitality pricing, and tenant integration browser POST handlers now return validated path-only HTTP 303 `Location` values through `redirectToLocalPath()`. They no longer construct redirects from incoming request Host values. All of their success, validation, authorization, and operational error responses pass through `applyAuthResponseNoStore()` before request-observation completion. Form-derived customer/property/room-type/rate-plan identifiers used in redirect paths or query values are URI-encoded, while the pricing error-target helper continues to validate property UUIDs.
+
+`scripts/management-local-redirect-contract.test.mjs` dynamically covers all current customer, pricing, and integration browser mutation routes. These changes preserve existing exact-Origin, media-type, session, active-tenant, capability, persistence, and audit enforcement. Path-only redirects do not replace trusted reverse-proxy Host configuration. Full Node 24/Next.js/Prisma/PostgreSQL verification remains required; no GitHub Actions are used.

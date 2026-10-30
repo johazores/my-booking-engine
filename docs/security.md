@@ -90,3 +90,7 @@ All implemented production API browser form mutation routes use the shared bound
 ## Inventory mutation redirect security
 
 Authenticated inventory, rental booking, custody, and inventory-related commercial POST responses now use path-only 303 `Location` values through the shared local redirect guard. The shared inventory request finish boundary adds `Cache-Control: no-store` to success and failure responses. Incoming Host values are not used to construct inventory mutation redirect destinations. Form-derived property, room-type, and rate-plan redirect identifiers are encoded before inclusion in paths or query strings. This is defense in depth, not a substitute for trusted proxy Host enforcement, Origin validation, current tenant membership, or operation-level authorization. See `docs/inventory-form-ingress.md`.
+
+## Customer, pricing, and integration browser mutation redirects
+
+Customer, pricing, and integration-management POST handlers use the shared local-path redirect guard instead of request-Host-derived absolute redirects. Their observation finish boundaries set `Cache-Control: no-store` on all outcomes, including authorization failures and provider configuration/test errors. Redirect path/query identifiers from browser forms are URI-encoded where applicable. Existing server-side tenant/resource/permission and provider-credential protections remain authoritative. See `docs/form-request-ingress.md`.

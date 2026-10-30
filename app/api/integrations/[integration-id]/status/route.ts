@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
 import { FormBodyValidationError, readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
@@ -18,7 +23,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
   const observation = createRequestObservation(request, { operation: 'integration.lifecycle.update' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -27,9 +32,9 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
   if (!isSupportedAuthFormRequest(request)) return finish(new Response('Unsupported Media Type', { status: 415 }));
 
   const session = await readAuthSession();
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/integrations?error=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/integrations?error=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   try {
@@ -37,16 +42,16 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
     const action = formData.get('action');
     const params = await context.params;
     if (action !== 'enable' && action !== 'disable' && action !== 'archive') {
-      return finish(NextResponse.redirect(new URL('/integrations?error=validation', request.url), 303), 'rejected');
+      return finish(redirectToLocalPath('/integrations?error=validation'), 'rejected');
     }
     if (action === 'archive' && formData.get('confirm') !== 'archive') {
-      return finish(NextResponse.redirect(new URL('/integrations?error=archive-confirmation', request.url), 303), 'rejected');
+      return finish(redirectToLocalPath('/integrations?error=archive-confirmation'), 'rejected');
     }
     const input = { organizationId: activeContext.organization.id, actorUserId: session.user.id, integrationId: params['integration-id'] };
     if (action === 'enable') await enableIntegration(input);
     else if (action === 'disable') await disableIntegration(input);
     else await archiveIntegration(input);
-    return finish(NextResponse.redirect(new URL(`/integrations?status=${action === 'enable' ? 'enabled' : action === 'disable' ? 'disabled' : 'archived'}`, request.url), 303));
+    return finish(redirectToLocalPath(`/integrations?status=${action === 'enable' ? 'enabled' : action === 'disable' ? 'disabled' : 'archived'}`));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -58,7 +63,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'integ
             ? 'validation'
             : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/integrations?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/integrations?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

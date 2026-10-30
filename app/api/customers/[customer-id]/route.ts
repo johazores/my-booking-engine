@@ -1,7 +1,12 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import {
+  applyAuthResponseNoStore,
+  isSameOriginAuthRequest,
+  isSupportedAuthFormRequest,
+  readAuthSession,
+  redirectToLocalPath,
+} from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { CustomerValidationError } from '@/server/customers/customer-domain.ts';
 import {
@@ -21,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
   const observation = createRequestObservation(request, { operation: 'customer.update' });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -35,7 +40,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try {
@@ -44,7 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
   if (!activeContext.organization) {
-    return finish(NextResponse.redirect(new URL('/customers?error=tenant', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/customers?error=tenant'), 'rejected');
   }
   organizationId = activeContext.organization.id;
 
@@ -54,7 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL(`/customers/${customerId}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?error=validation`), 'rejected');
   }
 
   try {
@@ -70,7 +75,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
         notes: field(formData, 'notes'),
       },
     });
-    return finish(NextResponse.redirect(new URL(`/customers/${customerId}?status=updated`, request.url), 303));
+    return finish(redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?status=updated`));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -82,7 +87,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'cu
             ? 'unavailable'
             : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/customers/${customerId}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/customers/${encodeURIComponent(customerId)}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }
