@@ -40,6 +40,7 @@ function run(command, args) {
 const requiredDatabaseIntegrationTests = [
   'src/server/tenancy/tenant-isolation.integration.ts',
   'src/server/auth/auth-persistence.integration.ts',
+  'src/server/auth/auth-abuse-control.integration.ts',
   'src/server/authorization/authorization.integration.ts',
   'src/server/organizations/organization-management.integration.ts',
   'src/server/branding/branding.integration.ts',

@@ -91,6 +91,18 @@ test('mandatory suite manifest permits new suites but rejects missing or duplica
   assert.throws(() => assertRequiredDatabaseIntegrationTests(['a'], ['a', 'a']), /Duplicate database integration test entries/);
 });
 
+test('auth abuse concurrency regression remains mandatory in the database runner', () => {
+  const runner = readFileSync(new URL('./run-database-tests.mjs', import.meta.url), 'utf8');
+  const manifest = runner.match(/const requiredDatabaseIntegrationTests = \[([\s\S]*?)\];/)?.[1];
+  assert.ok(manifest, 'the mandatory database suite manifest must exist');
+  for (const path of [
+    'src/server/auth/auth-persistence.integration.ts',
+    'src/server/auth/auth-abuse-control.integration.ts',
+  ]) {
+    assert.ok(manifest.includes(`'${path}'`), `${path} must remain a required database suite`);
+  }
+});
+
 test('database runner bounds file-level concurrency after migration and drift checks', () => {
   const runner = readFileSync(new URL('./run-database-tests.mjs', import.meta.url), 'utf8');
   const drift = runner.indexOf("run(npmCommand, ['run', 'db:drift']);");

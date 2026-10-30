@@ -14,9 +14,11 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
   ]);
   const firstEmail = `auth-limit-${randomUUID()}@example.test`;
   const otherEmail = `auth-limit-${randomUUID()}@example.test`;
+  const globalBoundaryEmail = `auth-limit-${randomUUID()}@example.test`;
   const key = domain.decodeAuthAbuseSecret(process.env.SF_AUTH_ABUSE_SECRET);
   const firstDigest = domain.createAuthAttemptDigest('sign-in', 'identity', firstEmail, key);
   const otherDigest = domain.createAuthAttemptDigest('sign-in', 'identity', otherEmail, key);
+  const globalBoundaryDigest = domain.createAuthAttemptDigest('sign-in', 'identity', globalBoundaryEmail, key);
   const signupDigest = domain.createAuthAttemptDigest('sign-up', 'identity', firstEmail, key);
   const signinGlobalDigest = domain.createAuthAttemptDigest('sign-in', 'global', '', key);
   const signupGlobalDigest = domain.createAuthAttemptDigest('sign-up', 'global', '', key);
@@ -48,6 +50,29 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
       where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
     });
     assert.equal(globalAfterFlood?.attempts, 11);
+
+    // Exercise the actual shared quota boundary without thousands of
+    // expensive credential attempts. Global denial still spends identity quota.
+    const globalLimit = domain.AUTH_ATTEMPT_LIMITS['sign-in'].global;
+    const prepared = await db.authAttemptWindow.updateMany({
+      where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
+      data: { attempts: globalLimit - 1 },
+    });
+    assert.equal(prepared.count, 1);
+    assert.equal((await reserveAuthAttempt('sign-in', globalBoundaryEmail)).allowed, true);
+    const deniedByGlobal = await reserveAuthAttempt('sign-in', globalBoundaryEmail);
+    assert.equal(deniedByGlobal.allowed, false);
+    if (!deniedByGlobal.allowed) {
+      assert.equal(deniedByGlobal.retryAfterSeconds, domain.AUTH_ATTEMPT_WINDOW_SECONDS);
+    }
+    const globalAtLimit = await db.authAttemptWindow.findFirst({
+      where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
+    });
+    assert.equal(globalAtLimit?.attempts, globalLimit);
+    const boundaryIdentity = await db.authAttemptWindow.findFirst({
+      where: { operation: 'sign-in', scope: 'identity', subjectHash: globalBoundaryDigest },
+    });
+    assert.equal(boundaryIdentity?.attempts, 2);
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(firstEmail)));
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(otherEmail)));
     delete process.env.SF_AUTH_ABUSE_SECRET;
@@ -55,7 +80,7 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
   } finally {
     await db.authAttemptWindow.deleteMany({
       where: { subjectHash: { in: [
-        firstDigest, otherDigest, signupDigest, signinGlobalDigest, signupGlobalDigest,
+        firstDigest, otherDigest, globalBoundaryDigest, signupDigest, signinGlobalDigest, signupGlobalDigest,
       ] } },
     });
     if (originalSecret === undefined) delete process.env.SF_AUTH_ABUSE_SECRET;
