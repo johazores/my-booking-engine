@@ -9,7 +9,7 @@
 - Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests. Malformed or noncanonical session cookie values are rejected before session-store access. Session expiry creation, active-session checks, and revocation timestamps use PostgreSQL time rather than application-server clocks. Sign-in session insertion locks and rechecks the active user row so a stale credential read cannot create a session after suspension.
 - Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
 - Authentication and organization-management browser POST redirects emit path-only 303 `Location` values, never absolute destinations derived from untrusted request Host. A shared guard rejects network-path and backslash/control-character targets; trusted ingress Host validation remains required.
-- All credential/sign-out and organization-create/select POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
+- All authentication and organization-management POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
 - Authentication mutations require exact same-origin form submissions and supported browser form media types. Credential form bodies have an 8 KiB pre-parse limit.
 - Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user.
 - Tenant organization lookup requires an active organization, active membership, and active user.

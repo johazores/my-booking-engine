@@ -92,7 +92,6 @@ test('authentication rate-limit feedback shows bounded database wait without tru
   }
 });
 
-
 test('browser mutation redirects preserve local paths and reject external destinations', () => {
   for (const path of ['/account', '/sign-in?error=required', '/sign-up?error=rate-limited&retry=900', '/branding?status=updated']) {
     const response = new Response(null, { status: 303, headers: { Location: getLocalPostRedirectLocation(path) } });

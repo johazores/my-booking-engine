@@ -14,7 +14,7 @@ Every read of active tenant context re-validates the cookie value through the te
 
 Organization creation automatically selects the newly created organization only after the atomic organization + membership transaction succeeds.
 
-Organization create/select, branding, settings, archive, and membership-management form responses redirect with path-only HTTP 303 locations. They do not derive redirect hosts from inbound request URLs, while authentication, active-tenant checks, capability checks, and server-side resource ownership remain unchanged.
+Organization create/select, branding, settings, archive, and membership-management form responses redirect with path-only HTTP 303 locations. They do not derive redirect hosts from inbound request URLs, while authentication, active-tenant checks, capability checks, and server-side resource ownership remain unchanged. All of these browser mutation responses, including errors, set `Cache-Control: no-store`.
 
 ## Organization settings
 

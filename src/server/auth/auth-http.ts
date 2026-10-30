@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { ACTIVE_ORGANIZATION_COOKIE, activeOrganizationCookieOptions } from '../tenancy/tenant-context.ts';
 
 import { resolveAuthSession } from './auth-service.ts';
+import { getLocalPostRedirectLocation } from './auth-http-policy.ts';
+
 export {
   AUTH_FORM_MAX_BYTES,
   applyAuthResponseNoStore,
@@ -11,8 +13,6 @@ export {
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
 } from './auth-http-policy.ts';
-
-import { getLocalPostRedirectLocation } from './auth-http-policy.ts';
 
 /** Return a path-only 303 Location, never an absolute URL derived from request headers. */
 export function redirectToLocalPath(path: string): NextResponse {

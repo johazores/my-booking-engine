@@ -22,6 +22,7 @@ test('identity and organization browser redirects never use the incoming request
   for (const routePath of routes) {
     const source = readFileSync(resolve(repositoryRoot, routePath), 'utf8');
     assert.match(source, /redirectToLocalPath\(/, routePath);
+    assert.match(source, /applyAuthResponseNoStore\(response\)/, routePath);
     assert.doesNotMatch(source, /NextResponse\.redirect\s*\(/, routePath);
     assert.doesNotMatch(source, /new URL\([^)]*request\.url/, routePath);
   }
