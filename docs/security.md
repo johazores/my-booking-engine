@@ -5,7 +5,7 @@
 - No secrets are committed and local environment files are ignored.
 - Database access is server-only.
 - User email identities are canonicalized before persistence and backed by database checks. Identity email and optional registration-name validators reject control characters, Unicode default-ignorable formatting (including invisible joiners and variation selectors), bidi controls, and unpaired Unicode surrogates.
-- Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted. Stored hash verification rejects noncanonical encodings and parameter aliases.
+- Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted. Unpaired UTF-16 surrogate passwords are rejected before hashing and verification to avoid replacement-character aliases. Stored hash verification rejects noncanonical encodings and parameter aliases.
 - Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests. Malformed or noncanonical session cookie values are rejected before session-store access. Session expiry creation, active-session checks, and revocation timestamps use PostgreSQL time rather than application-server clocks.
 - Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
 - All credential/sign-out and organization-create/select POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.

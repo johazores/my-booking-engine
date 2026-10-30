@@ -24,6 +24,10 @@ test('password policy enforces bounded length without mutating the secret', () =
   assert.equal(validatePassword('a'.repeat(AUTH_PASSWORD_MAX_LENGTH)), true);
   assert.equal(validatePassword('a'.repeat(AUTH_PASSWORD_MAX_LENGTH + 1)), false);
   assert.equal(validatePassword(` ${'a'.repeat(AUTH_PASSWORD_MIN_LENGTH - 1)}`), true);
+  assert.equal(validatePassword('x'.repeat(11) + '\ud800'), false);
+  assert.equal(validatePassword('x'.repeat(11) + '\udc00'), false);
+  assert.equal(validatePassword('x'.repeat(11) + '😀'), true);
+  assert.equal(validatePassword('x'.repeat(11) + '\ufffd'), true);
 });
 
 test('credential emails share canonical user identity rules and report validation errors', () => {
@@ -62,6 +66,18 @@ test('password hashes are salted, versioned, and verify only the original secret
   assert.equal(await verifyPassword(password, altered(5, parts[5].slice(0, -1) + saltAlias)), false);
 });
 
+test('password verification rejects malformed Unicode before UTF-8 substitution', async () => {
+  const password = 'x'.repeat(11) + '\ufffd';
+  const encoded = await hashPassword(password);
+  assert.equal(await verifyPassword(password, encoded), true);
+  assert.equal(await verifyPassword('x'.repeat(11) + '\ud800', encoded), false);
+  assert.equal(await verifyPassword('x'.repeat(11) + '\udc00', encoded), false);
+  assert.equal(await verifyPassword('short', encoded), false);
+  assert.equal(await verifyPassword('x'.repeat(129), encoded), false);
+  assert.equal(await verifyPassword(null as unknown as string, encoded), false);
+  await assert.rejects(() => hashPassword('x'.repeat(11) + '\ud800'), AuthValidationError);
+});
+
 test('session tokens have high entropy and only their digest needs persistence', () => {
   const token = createSessionToken();
   const anotherToken = createSessionToken();
@@ -87,6 +103,7 @@ test('sign-in pre-admission validation canonicalizes email without altering pass
     { email: 'invalid', password: 'x'.repeat(12) },
     { email: 'user@example.test', password: 'short' },
     { email: 'user@example.test', password: 'x'.repeat(129) },
+    { email: 'user@example.test', password: 'x'.repeat(11) + '\ud800' },
   ]) {
     assert.throws(() => validateSignInInput(input), AuthValidationError);
   }
@@ -132,7 +149,7 @@ test('authentication validators reject unsafe identity controls and malformed ru
   for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\u200eb@example.test', 'a\u061cb@example.test', 'a\u00adb@example.test', 'a\u034fb@example.test', 'a\u200cb@example.test', 'a\u{e0001}b@example.test']) {
     assert.throws(() => validateSignInInput({ email, password }), AuthValidationError);
   }
-  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root', 'Admin\u200fRoot', 'Admin\u206aRoot', 'Admin\u00adRoot', 'Admin\u034fRoot', 'Admin\u200dRoot', 'Admin\ufe0fRoot']) {
+  for (const displayName of [' \ufeffAdmin ', 'Admin\ufeff', 'Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root', 'Admin\u200fRoot', 'Admin\u206aRoot', 'Admin\u00adRoot', 'Admin\u034fRoot', 'Admin\u200dRoot', 'Admin\ufe0fRoot']) {
     assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName }), AuthValidationError);
   }
   assert.equal(validateSignUpInput({ email: 'user@example.test', password, displayName: 'Renée 李' }).displayName, 'Renée 李');

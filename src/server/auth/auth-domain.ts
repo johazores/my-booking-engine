@@ -31,7 +31,7 @@ export function createCanonicalAuthEmail(value: string) {
 }
 
 export function validatePassword(password: string) {
-  if (typeof password !== 'string') return false;
+  if (typeof password !== 'string' || !password.isWellFormed()) return false;
   const length = [...password].length;
   return length >= AUTH_PASSWORD_MIN_LENGTH && length <= AUTH_PASSWORD_MAX_LENGTH;
 }
@@ -59,11 +59,11 @@ export function validateSignUpInput(input: {
   const { email, password } = validateSignInInput(input);
   let displayName: string | undefined;
   if (input.displayName !== undefined) {
-    if (typeof input.displayName !== 'string') {
+    if (typeof input.displayName !== 'string' || hasUnsafeIdentityControls(input.displayName)) {
       throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
     }
     displayName = input.displayName.trim();
-    if (!displayName || displayName.length > 160 || hasUnsafeIdentityControls(displayName)) {
+    if (!displayName || displayName.length > 160) {
       throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
     }
   }
@@ -96,7 +96,7 @@ export async function hashPassword(password: string) {
 }
 
 export async function verifyPassword(password: string, encodedHash: string) {
-  if (typeof encodedHash !== 'string') return false;
+  if (!validatePassword(password) || typeof encodedHash !== 'string') return false;
   const parts = encodedHash.split('$');
   if (parts.length !== 7 || parts[0] !== 'scrypt' || parts[1] !== PASSWORD_HASH_VERSION) {
     return false;
