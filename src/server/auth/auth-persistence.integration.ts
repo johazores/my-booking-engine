@@ -51,6 +51,12 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
       (await authService.resolveAuthSession(registration.token))?.user.id,
       userId,
     );
+    // Untrusted malformed cookies never resolve or revoke a persisted session.
+    for (const invalidToken of ['', 'invalid', registration.token + '=', 'x'.repeat(8192)]) {
+      assert.equal(await authService.resolveAuthSession(invalidToken), null);
+      await authService.signOutSession(invalidToken);
+    }
+    assert.equal((await authService.resolveAuthSession(registration.token))?.user.id, userId);
 
     await db.authSession.updateMany({
       where: { userId, revokedAt: null },

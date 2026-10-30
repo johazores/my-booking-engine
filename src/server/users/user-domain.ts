@@ -11,12 +11,33 @@ const userStatusTransitions: Record<
   ARCHIVED: [],
 };
 
+/** Reject invisible control, unpaired surrogate, and bidi-override characters in identity text. */
+export function hasUnsafeIdentityControls(value: string) {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    if (
+      codePoint <= 0x1f ||
+      (codePoint >= 0x7f && codePoint <= 0x9f) ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
+      (codePoint >= 0x2028 && codePoint <= 0x202e) ||
+      (codePoint >= 0x2066 && codePoint <= 0x2069) ||
+      codePoint === 0x200b || codePoint === 0x2060 || codePoint === 0xfeff
+    ) return true;
+  }
+  return false;
+}
+
 export function normalizeUserEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
 export function validateUserEmail(value: string) {
-  if (!value || value.length > USER_EMAIL_MAX_LENGTH) {
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    value.length > USER_EMAIL_MAX_LENGTH ||
+    hasUnsafeIdentityControls(value)
+  ) {
     return false;
   }
 
@@ -28,6 +49,9 @@ export function validateUserEmail(value: string) {
 }
 
 export function createCanonicalUserEmail(value: string) {
+  if (typeof value !== 'string' || hasUnsafeIdentityControls(value)) {
+    throw new Error('User email must be a valid canonical email address.');
+  }
   const email = normalizeUserEmail(value);
 
   if (!validateUserEmail(email)) {

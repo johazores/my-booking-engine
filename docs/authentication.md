@@ -6,7 +6,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 
 ## Password credentials
 
-- Email identities use the canonical trimmed-lowercase user email rule.
+- Email identities use the canonical trimmed-lowercase user email rule. Control characters, bidi overrides, and unpaired Unicode surrogates are rejected before credential admission; ordinary Unicode names remain supported.
 - Passwords are never trimmed or normalized.
 - Passwords must contain 12–128 Unicode characters.
 - Password hashes use Node.js scrypt with a random 16-byte salt, versioned parameters, and a 64-byte derived key.
@@ -16,7 +16,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 
 ## Sessions
 
-Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user.
+Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user. Session resolution and revocation first reject malformed, noncanonical, or oversized bearer cookie values without querying PostgreSQL. Only canonical unpadded base64url encodings of 32-byte tokens are accepted.
 
 Sign-out revokes the persisted session before expiring the browser cookie. Successful sign-in and sign-up, and successful sign-out, also expire the previous `sf_organization` preference cookie. This prevents a selected tenant from carrying over between browser identities; the preference is never authorization authority. User suspension therefore removes authenticated access on the next protected request. Expired, revoked, unknown, or otherwise invalid session tokens resolve to no authenticated identity.
 

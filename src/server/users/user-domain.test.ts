@@ -5,6 +5,7 @@ import {
   assertUserStatusTransition,
   canTransitionUserStatus,
   createCanonicalUserEmail,
+  hasUnsafeIdentityControls,
   normalizeUserEmail,
   validateUserEmail,
 } from './user-domain.ts';
@@ -35,4 +36,18 @@ test('enforces explicit user lifecycle transitions', () => {
     () => assertUserStatusTransition('ARCHIVED', 'ACTIVE'),
     /cannot transition/,
   );
+});
+
+test('identity email validation rejects hidden controls without restricting ordinary Unicode', () => {
+  assert.equal(hasUnsafeIdentityControls('a\u0000b'), true);
+  assert.equal(hasUnsafeIdentityControls('a\u202eb'), true);
+  assert.equal(hasUnsafeIdentityControls('Renée 李 🐈'), false);
+  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\ufeffb@example.test']) {
+    assert.equal(validateUserEmail(email), false);
+    assert.throws(() => createCanonicalUserEmail(email), /valid canonical email/);
+  }
+  assert.equal(validateUserEmail(null as unknown as string), false);
+  assert.throws(() => createCanonicalUserEmail(null as unknown as string), /valid canonical email/);
+  assert.throws(() => createCanonicalUserEmail('\ufeffuser@example.test'), /valid canonical email/);
+  assert.throws(() => createCanonicalUserEmail('\nuser@example.test'), /valid canonical email/);
 });

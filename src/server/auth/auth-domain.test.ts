@@ -11,6 +11,7 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  isCanonicalSessionToken,
   validatePassword,
   validateSignInInput,
   validateSignUpInput,
@@ -93,4 +94,36 @@ test('sign-up pre-admission validation rejects invalid names and passwords', () 
     () => validateSignUpInput({ email: 'user@example.test', password: 'short' }),
     AuthValidationError,
   );
+});
+
+test('canonical session tokens reject noncanonical, oversized, and malformed bearer cookies', () => {
+  const token = createSessionToken();
+  assert.equal(isCanonicalSessionToken(token), true);
+  for (const invalid of [
+    '', 'short', token + '=', token + 'A', token.slice(1),
+    token.slice(0, -1) + '!', 'x'.repeat(8192), null, undefined, 42,
+  ]) {
+    assert.equal(isCanonicalSessionToken(invalid), false);
+  }
+  // Last base64url character for 32 bytes has only four canonical values.
+  const final = token.at(-1)!;
+  const lastCharIndex = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'.indexOf(final);
+  const alternate = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'[lastCharIndex ^ 1];
+  assert.equal(isCanonicalSessionToken(token.slice(0, -1) + alternate), false);
+});
+
+test('authentication validators reject unsafe identity controls and malformed runtime inputs', () => {
+  const password = 'x'.repeat(12);
+  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test']) {
+    assert.throws(() => validateSignInInput({ email, password }), AuthValidationError);
+  }
+  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root']) {
+    assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName }), AuthValidationError);
+  }
+  assert.equal(validateSignUpInput({ email: 'user@example.test', password, displayName: 'Renée 李' }).displayName, 'Renée 李');
+  assert.throws(() => createCanonicalAuthEmail(null as unknown as string), AuthValidationError);
+  assert.throws(() => createCanonicalAuthEmail('\ufeffuser@example.test'), AuthValidationError);
+  assert.throws(() => createCanonicalAuthEmail('\nuser@example.test'), AuthValidationError);
+  assert.throws(() => assertValidPassword(null as unknown as string), AuthValidationError);
+  assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName: 12 as unknown as string }), AuthValidationError);
 });

@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
-import { normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
+import { hasUnsafeIdentityControls, normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
 
 const scrypt = promisify(scryptCallback);
 
@@ -20,6 +20,9 @@ export class AuthValidationError extends Error {}
 
 /** Canonicalize browser credential identities with an auth-specific validation error. */
 export function createCanonicalAuthEmail(value: string) {
+  if (typeof value !== 'string' || hasUnsafeIdentityControls(value)) {
+    throw new AuthValidationError('Enter a valid email address.');
+  }
   const email = normalizeUserEmail(value);
   if (!validateUserEmail(email)) {
     throw new AuthValidationError('Enter a valid email address.');
@@ -28,6 +31,7 @@ export function createCanonicalAuthEmail(value: string) {
 }
 
 export function validatePassword(password: string) {
+  if (typeof password !== 'string') return false;
   const length = [...password].length;
   return length >= AUTH_PASSWORD_MIN_LENGTH && length <= AUTH_PASSWORD_MAX_LENGTH;
 }
@@ -55,8 +59,11 @@ export function validateSignUpInput(input: {
   const { email, password } = validateSignInInput(input);
   let displayName: string | undefined;
   if (input.displayName !== undefined) {
+    if (typeof input.displayName !== 'string') {
+      throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
+    }
     displayName = input.displayName.trim();
-    if (!displayName || displayName.length > 160) {
+    if (!displayName || displayName.length > 160 || hasUnsafeIdentityControls(displayName)) {
       throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
     }
   }
@@ -119,6 +126,13 @@ export async function verifyPassword(password: string, encodedHash: string) {
 
 export function createSessionToken() {
   return randomBytes(AUTH_SESSION_TOKEN_BYTES).toString('base64url');
+}
+
+/** Reject malformed bearer cookies before hashing or querying the session store. */
+export function isCanonicalSessionToken(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(value)) return false;
+  const bytes = Buffer.from(value, 'base64url');
+  return bytes.length === AUTH_SESSION_TOKEN_BYTES && bytes.toString('base64url') === value;
 }
 
 export function hashSessionToken(token: string) {

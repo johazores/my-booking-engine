@@ -4,9 +4,9 @@
 
 - No secrets are committed and local environment files are ignored.
 - Database access is server-only.
-- User email identities are canonicalized before persistence and backed by database checks.
+- User email identities are canonicalized before persistence and backed by database checks. Identity email and optional registration-name validators reject control characters, bidi overrides, and unpaired Unicode surrogates.
 - Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted.
-- Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests.
+- Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests. Malformed or noncanonical session cookie values are rejected before session-store access.
 - Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
 - All credential/sign-out and organization-create/select POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
 - Authentication mutations require exact same-origin form submissions and supported browser form media types.

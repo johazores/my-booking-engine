@@ -5,6 +5,7 @@ import {
   createSessionToken,
   hashPassword,
   hashSessionToken,
+  isCanonicalSessionToken,
   verifyPassword,
 } from './auth-domain.ts';
 import {
@@ -96,7 +97,7 @@ export async function signInWithPassword(input: {
 }
 
 export async function resolveAuthSession(token: string) {
-  if (!token) {
+  if (!isCanonicalSessionToken(token)) {
     return null;
   }
 
@@ -118,7 +119,7 @@ export async function resolveAuthSession(token: string) {
 }
 
 export async function signOutSession(token: string) {
-  if (!token) {
+  if (!isCanonicalSessionToken(token)) {
     return;
   }
 
