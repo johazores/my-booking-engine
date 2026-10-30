@@ -65,7 +65,7 @@ export function validateSignUpInput(input: {
       throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
     }
     displayName = input.displayName.trim();
-    if (!displayName || displayName.length > 160) {
+    if (!displayName || [...displayName].length > 160) {
       throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
     }
   }

@@ -118,7 +118,10 @@ test('sign-up pre-admission validation rejects invalid names and passwords', () 
     { email: 'user@example.test', password, displayName: 'User' },
   );
   assert.equal(validateSignUpInput({ email: 'user@example.test', password }).displayName, undefined);
-  for (const displayName of ['', '   ', 'x'.repeat(161)]) {
+  // PostgreSQL varchar(160) counts Unicode code points, not UTF-16 code units.
+  const longestValidUnicodeName = '😀'.repeat(160);
+  assert.equal(validateSignUpInput({ email: 'user@example.test', password, displayName: longestValidUnicodeName }).displayName, longestValidUnicodeName);
+  for (const displayName of ['', '   ', 'x'.repeat(161), '😀'.repeat(161)]) {
     assert.throws(
       () => validateSignUpInput({ email: 'user@example.test', password, displayName }),
       AuthValidationError,

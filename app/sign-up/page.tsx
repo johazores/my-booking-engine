@@ -38,7 +38,7 @@ export default async function SignUpPage({
         <form className="sf-form" action="/api/auth/sign-up" method="post">
           <label className="sf-field">
             <span>Name <small>(optional)</small></span>
-            <input name="displayName" type="text" autoComplete="name" maxLength={160} />
+            <input name="displayName" type="text" autoComplete="name" maxLength={320} />
           </label>
           <label className="sf-field">
             <span>Email</span>
@@ -46,7 +46,7 @@ export default async function SignUpPage({
           </label>
           <label className="sf-field">
             <span>Password</span>
-            <input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required aria-describedby="password-help" />
+            <input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={256} required aria-describedby="password-help" />
             <small id="password-help">Use 12 to 128 characters. Passwords are not trimmed or normalized.</small>
           </label>
           <button className="sf-button sf-button--primary" type="submit">Create account</button>

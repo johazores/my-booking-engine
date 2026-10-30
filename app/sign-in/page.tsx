@@ -37,7 +37,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
         {message ? <p className="sf-alert sf-alert--error" role="alert">{message}</p> : null}
         <form className="sf-form" action="/api/auth/sign-in" method="post">
           <label className="sf-field"><span>Email</span><input name="email" type="email" autoComplete="email" maxLength={320} required /></label>
-          <label className="sf-field"><span>Password</span><input name="password" type="password" autoComplete="current-password" minLength={12} maxLength={128} required /></label>
+          <label className="sf-field"><span>Password</span><input name="password" type="password" autoComplete="current-password" minLength={12} maxLength={256} required /></label>
           <button className="sf-button sf-button--primary" type="submit">Sign in</button>
         </form>
         <p className="sf-auth-card__foot">New to SF? <Link href="/sign-up">Create an account</Link></p>
