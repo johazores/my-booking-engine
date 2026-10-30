@@ -49,12 +49,29 @@ async function consumeWindow(
     : { allowed: false, retryAfterSeconds: decision.retryAfterSeconds } as const;
 }
 
+const AUTH_ATTEMPT_PRUNE_BATCH_SIZE = 256;
+
+/** Bound maintenance work so an admitted credential request never deletes an unbounded backlog. */
+export async function pruneExpiredAuthAttemptWindowsBatch() {
+  // Lock only the selected stale rows and avoid waiting behind another pruner.
+  return db.$executeRaw`
+    WITH stale AS (
+      SELECT ctid FROM "auth_attempt_windows"
+      WHERE "windowStart" < statement_timestamp() - INTERVAL '48 hours'
+      ORDER BY "windowStart"
+      LIMIT ${AUTH_ATTEMPT_PRUNE_BATCH_SIZE}
+      FOR UPDATE SKIP LOCKED
+    )
+    DELETE FROM "auth_attempt_windows" AS windows
+    USING stale
+    WHERE windows.ctid = stale.ctid
+  `;
+}
+
 async function pruneExpiredWindowsBestEffort() {
   if (randomBytes(1)[0] !== 0) return;
   try {
-    // Use the same authoritative database clock as window creation.
-    await db.$executeRaw`DELETE FROM "auth_attempt_windows"
-      WHERE "windowStart" < statement_timestamp() - INTERVAL '48 hours'`;
+    await pruneExpiredAuthAttemptWindowsBatch();
   } catch {
     // Retention cleanup must not replace an already enforced attempt decision.
   }

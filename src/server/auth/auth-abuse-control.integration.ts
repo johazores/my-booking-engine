@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import test from 'node:test';
 
 if (!process.env.TEST_DATABASE_URL || process.env.DATABASE_URL !== process.env.TEST_DATABASE_URL) {
@@ -117,6 +117,48 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
     });
     if (originalSecret === undefined) delete process.env.SF_AUTH_ABUSE_SECRET;
     else process.env.SF_AUTH_ABUSE_SECRET = originalSecret;
+    await db.$disconnect();
+  }
+});
+
+
+test('auth attempt retention prunes only a bounded batch and preserves active windows', async () => {
+  const [{ db }, { pruneExpiredAuthAttemptWindowsBatch }] = await Promise.all([
+    import('../database.ts'), import('./auth-abuse-repository.ts'),
+  ]);
+  const prefix = randomBytes(16).toString('hex');
+  const hashes = Array.from({ length: 270 }, (_, index) =>
+    createHash('sha256').update(`${prefix}:${index}`).digest('hex'));
+  const currentHash = createHash('sha256').update(`${prefix}:current`).digest('hex');
+  try {
+    const clockRows = await db.$queryRaw<Array<{ now: Date }>>`SELECT statement_timestamp() AS "now"`;
+    assert.equal(clockRows.length, 1);
+    const currentWindow = new Date(clockRows[0].now.getTime() - 60_000);
+    await db.authAttemptWindow.createMany({
+      data: [
+        ...hashes.map((subjectHash) => ({
+          operation: 'sign-in', scope: 'identity', subjectHash,
+          windowStart: new Date('2001-01-01T00:00:00.000Z'), attempts: 1,
+        })),
+        {
+          operation: 'sign-in', scope: 'identity', subjectHash: currentHash,
+          windowStart: currentWindow, attempts: 1,
+        },
+      ],
+    });
+    const deleted = await pruneExpiredAuthAttemptWindowsBatch();
+    assert.ok(Number.isSafeInteger(deleted) && deleted >= 1 && deleted <= 256);
+    const remainingStale = await db.authAttemptWindow.count({
+      where: { subjectHash: { in: hashes } },
+    });
+    assert.ok(remainingStale >= 14, 'a single cleanup must never remove more than 256 stale rows');
+    assert.equal(await db.authAttemptWindow.count({
+      where: { subjectHash: currentHash },
+    }), 1, 'current admission windows must survive retention cleanup');
+  } finally {
+    await db.authAttemptWindow.deleteMany({
+      where: { subjectHash: { in: [...hashes, currentHash] } },
+    });
     await db.$disconnect();
   }
 });
