@@ -49,7 +49,7 @@ The public payment-status endpoint accepts the booking capability in a same-orig
 
 ## HTTP and credential handling
 
-Public write routes use the shared same-origin policy and `Cache-Control: no-store`.
+Public write routes use the shared exact serialized-Origin policy and `Cache-Control: no-store`. The public and authenticated browser mutation guards now delegate to the same HTTP(S) Origin checker. An Origin header containing a URL path, query, fragment, credentials, trailing slash, or canonicalization alias is rejected instead of being normalized into an accepted origin. The guard remains independent of the opaque capability, tenant-owned principal, and commercial authorization checks; it does not establish trusted reverse-proxy Host configuration or client-source identity. The shared policy and a public-route sweep have dependency-free regression coverage.
 
 Capabilities must never appear in URLs, logs, analytics, audit payloads, or rendered server HTML. The public browser keeps the short-lived booking capability only in same-tab `sessionStorage` for Checkout return/recovery and clears terminal recovery state. HTTPS remains mandatory in production.
 

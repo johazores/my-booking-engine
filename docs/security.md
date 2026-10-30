@@ -21,6 +21,10 @@
 - Tenant integration credentials are encrypted at rest with a deployment-only master key; management reads never return stored secrets.
 - Next.js removes the framework powered-by header.
 
+## Browser Origin validation
+
+Authenticated browser mutations and anonymous public-booking writes share an exact serialized-Origin check. The Origin header must equal the request HTTP(S) origin as sent, not merely parse to the same origin as an arbitrary URL. This rejects malformed or noncanonical Origin values with paths, credentials, fragments, trailing slashes, default-port aliases, and opaque origins. Public hold, release, quote, confirmation, Checkout, recovery, and legal-document write/read-by-capability endpoints retain their existing capability/tenant/authorization and no-store boundaries. Dependency-free tests exercise the shared policy and scan public mutation routes for the guard. The comparison is defense in depth: it does **not** establish a trusted external Host or client IP, and reverse-proxy Host enforcement and edge protection remain deployment responsibilities. Full Node 24 and live PostgreSQL validation remain open.
+
 ## Authentication security
 
 **Partially implemented, not production-validated:** sign-in and sign-up validate canonical email and password length (plus optional registration display name) before spending shared quota, then reserve bounded database-clock attempts before credential work. Both services independently repeat the same shared validators before credential lookup or registration. Identity keys are keyed HMACs and counters are atomic across replicas, including concurrent distinct identities at the shared quota boundary. Rejections return a database-clock fixed-window Retry-After rather than an unconditional 15-minute delay. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.

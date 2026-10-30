@@ -73,3 +73,17 @@ test('public booking JSON rejects mismatched declared lengths', async () => {
   assert.equal(await readPublicBookingJsonObject(jsonRequest(body, { 'content-length': String(length - 1) })), null);
   assert.equal(await readPublicBookingJsonObject(jsonRequest(body, { 'content-length': String(length + 1) })), null);
 });
+
+test('public writes reject noncanonical Origin URL aliases consistently with authenticated mutations', () => {
+  const url = 'https://booking.example.com/api/public-bookings/acme/hospitality/holds';
+  for (const origin of [
+    'https://booking.example.com/', 'https://booking.example.com/path',
+    'https://booking.example.com?query=1', 'https://booking.example.com#fragment',
+    'https://booking.example.com:443', 'HTTPS://BOOKING.EXAMPLE.COM',
+    'https://user@booking.example.com', 'null',
+  ]) {
+    assert.equal(isSameOriginPublicBookingWrite(new Request(url, {
+      method: 'POST', headers: { origin },
+    })), false, origin);
+  }
+});

@@ -22,7 +22,7 @@ The public booking client also treats a successful hold followed by a failed quo
 
 ## HTTP policy
 
-`src/server/bookings/public-booking-http-policy.ts` centralizes the same-origin policy and bounded JSON object parser used by public booking mutations. Missing, malformed, and cross-origin `Origin` values are denied. JSON bodies must use `application/json`, decode as valid UTF-8, and parse to an object. Hold create/release, quote, and confirmation use the shared 64 KiB streamed ceiling even when `Content-Length` is absent. The capability-focused payment receipt, Stripe Checkout creation, and Stripe Checkout status routes reuse the same reader with tighter 8 KiB route ceilings and reject empty or over-4,096-character booking capabilities before service-level verification.
+`src/server/bookings/public-booking-http-policy.ts` centralizes the same-origin policy and bounded JSON object parser used by public booking mutations. Missing, malformed, noncanonical, and cross-origin `Origin` values are denied using the same exact serialized HTTP(S) Origin check as authenticated browser mutations. The header is never parsed as an arbitrary URL that could contain a path, query, fragment, or credentials. This does not replace reverse-proxy Host validation or capability authorization. JSON bodies must use `application/json`, decode as valid UTF-8, and parse to an object. Hold create/release, quote, and confirmation use the shared 64 KiB streamed ceiling even when `Content-Length` is absent. The capability-focused payment receipt, Stripe Checkout creation, and Stripe Checkout status routes reuse the same reader with tighter 8 KiB route ceilings and reject empty or over-4,096-character booking capabilities before service-level verification.
 
 ## Journey integration
 

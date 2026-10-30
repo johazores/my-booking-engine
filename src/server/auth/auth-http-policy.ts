@@ -1,3 +1,4 @@
+import { isSameOriginRequest } from '../http/same-origin.ts';
 import { AUTH_ATTEMPT_WINDOW_SECONDS } from './auth-abuse-domain.ts';
 
 /** Credential forms need far less than the general 64 KiB mutation limit. */
@@ -14,12 +15,7 @@ const AUTH_FORM_MEDIA_TYPES = new Set([
 ]);
 
 export function isSameOriginAuthRequest(request: Request) {
-  const origin = request.headers.get('origin');
-  if (!origin) {
-    return false;
-  }
-
-  return origin === new URL(request.url).origin;
+  return isSameOriginRequest(request);
 }
 
 export function isSupportedAuthFormRequest(request: Request) {

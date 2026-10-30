@@ -102,3 +102,15 @@ test('browser mutation redirects preserve local paths and reject external destin
   }
   assert.throws(() => getLocalPostRedirectLocation(null as unknown as string), TypeError);
 });
+
+test('authenticated browser mutations reject URL aliases rather than parsing them as origins', () => {
+  const url = 'https://sf.example/api/auth/sign-in';
+  for (const origin of [
+    'https://sf.example/', 'https://sf.example/path', 'https://sf.example?query=1',
+    'https://sf.example#fragment', 'https://sf.example:443',
+    'HTTPS://SF.EXAMPLE', 'null',
+  ]) {
+    const request = new Request(url, { method: 'POST', headers: { origin } });
+    assert.equal(isSameOriginAuthRequest(request), false, origin);
+  }
+});
