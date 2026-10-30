@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AuthCryptoCapacityError, runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
 import {
   AUTH_PASSWORD_MAX_LENGTH,
   AUTH_PASSWORD_MIN_LENGTH,
@@ -158,4 +159,20 @@ test('authentication validators reject unsafe identity controls and malformed ru
   assert.throws(() => createCanonicalAuthEmail('\nuser@example.test'), AuthValidationError);
   assert.throws(() => assertValidPassword(null as unknown as string), AuthValidationError);
   assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName: 12 as unknown as string }), AuthValidationError);
+});
+
+test('scrypt capacity saturation fails closed for both password hashing and verification', async () => {
+  const password = 'correct horse battery staple';
+  const encoded = await hashPassword(password);
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  // Occupy both workers and all 16 bounded queue positions without doing crypto.
+  const occupied = Array.from({ length: 18 }, () => runWithAuthCryptoCapacity(() => blocked));
+  try {
+    await assert.rejects(() => hashPassword(password), AuthCryptoCapacityError);
+    await assert.rejects(() => verifyPassword(password, encoded), AuthCryptoCapacityError);
+  } finally {
+    release();
+    await Promise.all(occupied);
+  }
 });

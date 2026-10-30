@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { hasUnsafeIdentityControls, normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
+import { AuthCryptoCapacityError, runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
 
 const scrypt = promisify(scryptCallback);
 
@@ -71,12 +72,12 @@ export function validateSignUpInput(input: {
 }
 
 async function derivePasswordKey(password: string, salt: Buffer) {
-  return (await scrypt(password, salt, SCRYPT_KEY_LENGTH, {
+  return runWithAuthCryptoCapacity(async () => (await scrypt(password, salt, SCRYPT_KEY_LENGTH, {
     N: SCRYPT_N,
     r: SCRYPT_R,
     p: SCRYPT_P,
     maxmem: SCRYPT_MAXMEM,
-  })) as Buffer;
+  })) as Buffer);
 }
 
 export async function hashPassword(password: string) {
@@ -125,7 +126,9 @@ export async function verifyPassword(password: string, encodedHash: string) {
 
     const actual = await derivePasswordKey(password, salt);
     return timingSafeEqual(actual, expected);
-  } catch {
+  } catch (error) {
+    // Saturation is an operational failure, never an incorrect-password result.
+    if (error instanceof AuthCryptoCapacityError) throw error;
     return false;
   }
 }

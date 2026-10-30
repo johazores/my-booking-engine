@@ -24,6 +24,8 @@
 
 **Partially implemented, not production-validated:** sign-in and sign-up validate canonical email and password length (plus optional registration display name) before spending shared quota, then reserve bounded database-clock attempts before credential work. Both services independently repeat the same shared validators before credential lookup or registration. Identity keys are keyed HMACs and counters are atomic across replicas, including concurrent distinct identities at the shared quota boundary. Rejections return a database-clock fixed-window Retry-After rather than an unconditional 15-minute delay. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
 
+Memory-intensive scrypt derivations now use a bounded per-process FIFO limiter (two active, 16 queued, 10-second wait deadline), shared by registration, password verification, and unknown-account timing padding. Overload fails closed rather than scheduling unlimited cryptographic work. This is not a substitute for trusted-source limits, distributed quotas, edge WAF, or measured production load testing.
+
 The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 
 Passwords are not trimmed or normalized. The current policy requires 12–128 Unicode characters. The stored hash contains a random salt and versioned scrypt parameters so future rehashing can be introduced without changing the external authentication contract.

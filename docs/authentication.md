@@ -10,6 +10,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 - Passwords are never trimmed or normalized. Unpaired UTF-16 surrogates are rejected before hashing or verification, avoiding UTF-8 replacement-character aliases; valid Unicode passwords remain unchanged.
 - Passwords must contain 12–128 Unicode characters.
 - Password hashes use Node.js scrypt with a random 16-byte salt, versioned parameters, and a 64-byte derived key.
+- To bound per-process scrypt memory under concurrent sign-in/sign-up traffic, at most two derivations execute at once; up to 16 requests may wait for at most 10 seconds. Overflow fails closed with generic browser feedback, without persisting credentials or sessions. These limits do not replace edge protection or the shared PostgreSQL admission budgets.
 - Only encoded password hashes are stored. Verification rejects noncanonical base64url salt/key encodings and noncanonical scrypt parameter strings rather than accepting decoder aliases or corrupted credential records.
 - Credential lookup requires an `ACTIVE` user.
 - Failed sign-in responses remain generic and do not reveal whether an email exists.

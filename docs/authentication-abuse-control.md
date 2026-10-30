@@ -13,6 +13,12 @@ Each admitted request, including successful authentication, spends its per-ident
 
 The database applies `date_bin` with `statement_timestamp()` and a conditional atomic `ON CONFLICT` increment. A single statement returns both the admission decision and the database-clock seconds remaining in the rejected fixed window, avoiding a clock-read race at window rollover. Concurrent requests cannot exceed either count limit, including when distinct identities race for the last shared slots. The shared quota covers identity-admitted requests, not all HTTP requests; edge-level request flooding still needs separate trusted-source/WAF controls. Denied browser requests redirect to the same form with a generic message and database-derived `Retry-After` between 1 and 900 seconds. Redirects are HTTP 303, not 429, and must not be counted as edge-level HTTP throttling.
 
+## In-process scrypt capacity protection
+
+Authentication scrypt work (registration hashing, sign-in password verification, and unknown-email timing padding) is now bounded to **two concurrent derivations per application process**, with **16 FIFO waiting requests** and a **10-second maximum queue wait**. Each configured scrypt derivation requires roughly 64 MiB of working memory, so this prevents a burst of admitted requests from launching unbounded memory-intensive crypto jobs. A full queue or expired wait fails closed and returns the existing generic authentication server-error feedback; no credential/session write proceeds. Slots are released even if scrypt fails. These are fixed conservative per-process safeguards, not distributed request quotas or proof of deployment-wide capacity. Load-test the actual production process/memory limits before tuning.
+
+The PostgreSQL identity/global admission budgets still apply first, and trusted-source edge/WAF protections are still required. The new dependency-free concurrency, overflow, failure, and timeout tests do not replace Node 24/load testing.
+
 ## Still open
 
 - No trusted client-source identity is available in the app runtime. Do not trust caller-supplied `X-Forwarded-For`. Verify edge header ownership and add trusted per-source protection independently.
