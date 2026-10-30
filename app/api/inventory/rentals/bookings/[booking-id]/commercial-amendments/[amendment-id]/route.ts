@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { applyRentalBookingCommercialAmendment } from '@/server/bookings/rental-booking-commercial-amendment-apply-service.ts';
@@ -68,10 +68,7 @@ export async function POST(
 
   if (!formData) {
     return finish(
-      NextResponse.redirect(
-        new URL(detailUrl(bookingId, amendmentId, 'error=validation'), request.url),
-        303,
-      ),
+      redirectToLocalPath(detailUrl(bookingId, amendmentId, 'error=validation')),
       'rejected',
     );
   }
@@ -89,10 +86,7 @@ export async function POST(
       });
       const status = result.idempotent ? 'settlement-existing' : 'settlement-recorded';
       return finish(
-        NextResponse.redirect(
-          new URL(detailUrl(bookingId, amendmentId, `status=${status}`), request.url),
-          303,
-        ),
+        redirectToLocalPath(detailUrl(bookingId, amendmentId, `status=${status}`)),
       );
     }
 
@@ -106,10 +100,7 @@ export async function POST(
       });
       const status = result.idempotent ? 'compensation-existing' : 'compensation-recorded';
       return finish(
-        NextResponse.redirect(
-          new URL(detailUrl(bookingId, amendmentId, `status=${status}`), request.url),
-          303,
-        ),
+        redirectToLocalPath(detailUrl(bookingId, amendmentId, `status=${status}`)),
       );
     }
 
@@ -127,10 +118,7 @@ export async function POST(
       });
       const status = result.idempotent ? 'apply-existing' : 'amendment-applied';
       return finish(
-        NextResponse.redirect(
-          new URL(detailUrl(bookingId, amendmentId, `status=${status}`), request.url),
-          303,
-        ),
+        redirectToLocalPath(detailUrl(bookingId, amendmentId, `status=${status}`)),
       );
     }
 
@@ -147,10 +135,7 @@ export async function POST(
           ? 'close-existing'
           : 'amendment-closed';
       return finish(
-        NextResponse.redirect(
-          new URL(detailUrl(bookingId, amendmentId, `status=${status}`), request.url),
-          303,
-        ),
+        redirectToLocalPath(detailUrl(bookingId, amendmentId, `status=${status}`)),
       );
     }
 
@@ -182,10 +167,7 @@ export async function POST(
       });
       const status = result.idempotent ? 'refund-existing' : 'refund-recorded';
       return finish(
-        NextResponse.redirect(
-          new URL(detailUrl(bookingId, amendmentId, `status=${status}`), request.url),
-          303,
-        ),
+        redirectToLocalPath(detailUrl(bookingId, amendmentId, `status=${status}`)),
       );
     }
 
@@ -195,10 +177,7 @@ export async function POST(
   } catch (error) {
     const code = actionErrorCode(error);
     return finish(
-      NextResponse.redirect(
-        new URL(detailUrl(bookingId, amendmentId, `error=${code}`), request.url),
-        303,
-      ),
+      redirectToLocalPath(detailUrl(bookingId, amendmentId, `error=${code}`)),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -31,15 +31,12 @@ export async function POST(request: Request) {
         description: formField(formData, 'description'),
       },
     });
-    return finish(NextResponse.redirect(
-      new URL(`/inventory/${ratePlan.propertyId}/rate-plans?ratePlan=${ratePlan.id}&status=rate-plan-created`, request.url),
-      303,
-    ));
+    return finish(redirectToLocalPath(`/inventory/${ratePlan.propertyId}/rate-plans?ratePlan=${ratePlan.id}&status=rate-plan-created`));
   } catch (error) {
-    const target = propertyId ? `/inventory/${propertyId}/rate-plans` : '/inventory';
+    const target = propertyId ? `/inventory/${encodeURIComponent(propertyId)}/rate-plans` : '/inventory';
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${target}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${target}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

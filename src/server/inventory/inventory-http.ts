@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server';
-
 import {
+  applyAuthResponseNoStore,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
   readAuthSession,
+  redirectToLocalPath,
 } from '../auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '../authorization/authorization-service.ts';
 import {
@@ -79,7 +79,7 @@ export async function prepareInventoryMutationRequest(request: Request, operatio
   const observation = createRequestObservation(request, { operation });
   let organizationId: string | undefined;
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     { organizationId },
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -100,7 +100,7 @@ export async function prepareInventoryMutationRequest(request: Request, operatio
   if (!session) {
     return {
       ok: false as const,
-      response: finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected'),
+      response: finish(redirectToLocalPath('/sign-in?error=required'), 'rejected'),
     };
   }
 
@@ -113,7 +113,7 @@ export async function prepareInventoryMutationRequest(request: Request, operatio
   if (!activeContext.organization) {
     return {
       ok: false as const,
-      response: finish(NextResponse.redirect(new URL('/inventory?error=tenant', request.url), 303), 'rejected'),
+      response: finish(redirectToLocalPath('/inventory?error=tenant'), 'rejected'),
     };
   }
 

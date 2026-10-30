@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
@@ -36,10 +36,7 @@ export async function POST(
   const formData = await readInventoryFormData(request);
   if (!formData) {
     return finish(
-      NextResponse.redirect(
-        new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=validation`, request.url),
-        303,
-      ),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=validation`),
       'rejected',
     );
   }
@@ -54,12 +51,12 @@ export async function POST(
     });
     const status = result.idempotent ? 'booking-already-cancelled' : 'booking-cancelled';
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(result.booking.id)}?status=${status}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(result.booking.id)}?status=${status}`),
     );
   } catch (error) {
     const code = rentalBookingCancellationErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

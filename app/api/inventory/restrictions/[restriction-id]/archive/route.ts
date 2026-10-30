@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 're
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -38,16 +38,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ 're
     });
     const query = new URLSearchParams({ ratePlan: ratePlanId, status: 'restriction-archived' });
     if (roomTypeId) query.set('roomType', roomTypeId);
-    return finish(NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${query}`, request.url), 303));
+    return finish(redirectToLocalPath(`/inventory/${encodeURIComponent(propertyId)}/restrictions?${query}`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     const response = !propertyId
-      ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
+      ? redirectToLocalPath(`/inventory?error=${code}`)
       : (() => {
         const query = new URLSearchParams({ error: code });
         if (ratePlanId) query.set('ratePlan', ratePlanId);
         if (roomTypeId) query.set('roomType', roomTypeId);
-        return NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${query}`, request.url), 303);
+        return redirectToLocalPath(`/inventory/${encodeURIComponent(propertyId)}/restrictions?${query}`);
       })();
     return finish(response, code === 'server' ? 'failed' : 'rejected');
   }

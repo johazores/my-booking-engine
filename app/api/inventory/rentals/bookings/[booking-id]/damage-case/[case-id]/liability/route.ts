@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { decideRentalDamageLiability } from '@/server/bookings/rental-damage-liability-service.ts';
 import {
@@ -21,7 +21,7 @@ export async function POST(
 
   if (!formData) {
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303),
+      redirectToLocalPath(`${path}?error=validation`),
       'rejected',
     );
   }
@@ -38,11 +38,11 @@ export async function POST(
         reason: formField(formData, 'reason'),
       },
     });
-    return finish(NextResponse.redirect(new URL(path, request.url), 303));
+    return finish(redirectToLocalPath(path));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${path}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

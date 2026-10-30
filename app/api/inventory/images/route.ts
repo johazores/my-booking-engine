@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -28,7 +28,7 @@ function target(propertyId: string, roomTypeId: string, typePage: string, imageP
     if (key && value) query.set(key, value);
   }
   const encoded = query.toString();
-  return `/inventory/${propertyId}/images${encoded ? `?${encoded}` : ''}`;
+  return `/inventory/${encodeURIComponent(propertyId)}/images${encoded ? `?${encoded}` : ''}`;
 }
 
 export async function POST(request: Request) {
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -60,11 +60,11 @@ export async function POST(request: Request) {
 
     if (action === 'set-primary') {
       await setPrimaryHospitalityImage({ ...scope, imageId: formField(formData, 'imageId') });
-      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-primary'), request.url), 303));
+      return finish(redirectToLocalPath(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-primary')));
     }
     if (action === 'remove') {
       await removeHospitalityImage({ ...scope, imageId: formField(formData, 'imageId'), confirmation: formField(formData, 'confirmation') });
-      return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-removed'), request.url), 303));
+      return finish(redirectToLocalPath(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-removed')));
     }
     if (action !== 'create') return finish(new Response('Bad Request', { status: 400 }));
 
@@ -77,12 +77,12 @@ export async function POST(request: Request) {
         isPrimary: formField(formData, 'isPrimary'),
       },
     });
-    return finish(NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-created'), request.url), 303));
+    return finish(redirectToLocalPath(target(propertyId, roomTypeId, typePage, imagePage, 'status=image-created')));
   } catch (error) {
     const code = inventoryErrorCode(error);
     const response = !propertyId
-      ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
-      : NextResponse.redirect(new URL(target(propertyId, roomTypeId, typePage, imagePage, `error=${code}`), request.url), 303);
+      ? redirectToLocalPath(`/inventory?error=${code}`)
+      : redirectToLocalPath(target(propertyId, roomTypeId, typePage, imagePage, `error=${code}`));
     return finish(response, code === 'server' ? 'failed' : 'rejected');
   }
 }

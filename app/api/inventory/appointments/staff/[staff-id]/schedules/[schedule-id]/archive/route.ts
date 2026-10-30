@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -20,7 +20,7 @@ export async function POST(
   const staffPath = `/inventory/appointments/${encodeURIComponent(staffId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${staffPath}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${staffPath}?error=validation`), 'rejected');
   }
   try {
     await archiveAppointmentSchedule({
@@ -30,11 +30,11 @@ export async function POST(
       scheduleId: params['schedule-id'],
       confirmation: formField(formData, 'confirmation'),
     });
-    return finish(NextResponse.redirect(new URL(`${staffPath}?status=schedule-archived`, request.url), 303));
+    return finish(redirectToLocalPath(`${staffPath}?status=schedule-archived`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${staffPath}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${staffPath}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

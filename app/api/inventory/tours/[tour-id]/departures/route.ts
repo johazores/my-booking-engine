@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -14,7 +14,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'tour-
   const { finish, organization, session } = mutation;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory/tours?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory/tours?error=validation'), 'rejected');
   }
 
   const params = await context.params;
@@ -31,11 +31,11 @@ export async function POST(request: Request, context: { params: Promise<{ 'tour-
         capacity: formField(formData, 'capacity'),
       },
     });
-    return finish(NextResponse.redirect(new URL(`${tourProductPath}?status=departure-created`, request.url), 303));
+    return finish(redirectToLocalPath(`${tourProductPath}?status=departure-created`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${tourProductPath}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${tourProductPath}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

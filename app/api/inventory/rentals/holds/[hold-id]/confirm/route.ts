@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -35,7 +35,7 @@ export async function POST(
   const formData = await readInventoryFormData(request);
   if (!formData) {
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/holds/${encodeURIComponent(params['hold-id'])}?error=validation`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/holds/${encodeURIComponent(params['hold-id'])}?error=validation`),
       'rejected',
     );
   }
@@ -57,14 +57,14 @@ export async function POST(
     });
     const status = result.idempotent ? 'booking-existing' : 'booking-confirmed';
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${result.booking.id}?status=${status}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${result.booking.id}?status=${status}`),
     );
   } catch (error) {
     const code = rentalBookingErrorCode(error);
     const query = new URLSearchParams({ error: code });
     if (customerId) query.set('customerId', customerId);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/holds/${encodeURIComponent(params['hold-id'])}?${query.toString()}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/holds/${encodeURIComponent(params['hold-id'])}?${query.toString()}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

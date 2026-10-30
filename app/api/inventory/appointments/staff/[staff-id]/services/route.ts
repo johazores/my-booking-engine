@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -17,7 +17,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'staff
   const staffPath = `/inventory/appointments/${encodeURIComponent(staffId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${staffPath}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${staffPath}?error=validation`), 'rejected');
   }
   try {
     await assignAppointmentServiceToStaff({
@@ -26,11 +26,11 @@ export async function POST(request: Request, context: { params: Promise<{ 'staff
       staffId,
       serviceCode: formField(formData, 'serviceCode'),
     });
-    return finish(NextResponse.redirect(new URL(`${staffPath}?status=service-assigned`, request.url), 303));
+    return finish(redirectToLocalPath(`${staffPath}?status=service-assigned`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${staffPath}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${staffPath}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

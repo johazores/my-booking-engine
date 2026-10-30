@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
@@ -44,13 +44,8 @@ export async function POST(
   const formData = await readInventoryFormData(request);
   if (!formData) {
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/unit-substitution?error=validation`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/unit-substitution?error=validation`),
       'rejected',
     );
   }
@@ -71,24 +66,14 @@ export async function POST(
     });
     const status = result.idempotent ? 'booking-unit-substitution-existing' : 'booking-unit-substituted';
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(result.booking.id)}?status=${status}`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(result.booking.id)}?status=${status}`),
     );
   } catch (error) {
     const code = rentalBookingUnitSubstitutionErrorCode(error);
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/unit-substitution?targetUnitId=${encodeURIComponent(targetUnitId)}&error=${code}`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/unit-substitution?targetUnitId=${encodeURIComponent(targetUnitId)}&error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

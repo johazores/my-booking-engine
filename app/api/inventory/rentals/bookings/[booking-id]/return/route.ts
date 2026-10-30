@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { TenantIdentifierValidationError } from '@/server/tenancy/tenant-scope.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -27,11 +27,11 @@ export async function POST(request: Request, context: { params: Promise<{ 'booki
   try {
     const result = await recordRentalBookingReturn({ organizationId: organization.id, actorUserId: session.user.id, bookingId });
     const status = result.idempotent ? 'rental-return-existing' : 'rental-returned';
-    return finish(NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`, request.url), 303));
+    return finish(redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`));
   } catch (error) {
     const code = fulfillmentErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

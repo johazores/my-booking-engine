@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { assessRentalLateReturn } from '@/server/bookings/rental-late-return-service.ts';
 import {
@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData || formField(formData, 'confirmation') !== 'ACKNOWLEDGED') {
-    return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=validation`), 'rejected');
   }
 
   try {
@@ -31,11 +31,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
         reason: formField(formData, 'reason'),
       },
     });
-    return finish(NextResponse.redirect(new URL(path, request.url), 303));
+    return finish(redirectToLocalPath(path));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${path}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

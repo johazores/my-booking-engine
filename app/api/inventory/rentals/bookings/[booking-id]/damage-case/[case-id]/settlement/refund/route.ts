@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
@@ -31,7 +31,7 @@ export async function POST(
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${path}?error=payment-validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=payment-validation`), 'rejected');
   }
 
   try {
@@ -42,9 +42,9 @@ export async function POST(
       damageCaseId,
       reference: formField(formData, 'reference'),
     });
-    return finish(NextResponse.redirect(new URL(path, request.url), 303));
+    return finish(redirectToLocalPath(path));
   } catch (error) {
     const code = errorCode(error);
-    return finish(NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303), code === 'payment-server' ? 'failed' : 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=${code}`), code === 'payment-server' ? 'failed' : 'rejected');
   }
 }

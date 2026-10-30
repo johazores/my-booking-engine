@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
@@ -47,13 +47,8 @@ export async function POST(
 
   if (!formData) {
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/reschedule?error=validation`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/reschedule?error=validation`),
       'rejected',
     );
   }
@@ -71,24 +66,14 @@ export async function POST(
     });
     const status = result.idempotent ? 'amendment-existing' : 'amendment-prepared';
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/commercial-amendments/${encodeURIComponent(result.amendment.id)}?status=${status}`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/commercial-amendments/${encodeURIComponent(result.amendment.id)}?status=${status}`),
     );
   } catch (error) {
     const code = amendmentPrepareErrorCode(error);
     return finish(
-      NextResponse.redirect(
-        new URL(
-          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/reschedule?startsOn=${encodeURIComponent(startsOn)}&endsOn=${encodeURIComponent(endsOn)}&error=${code}`,
-          request.url,
-        ),
-        303,
-      ),
+      redirectToLocalPath(
+          `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/reschedule?startsOn=${encodeURIComponent(startsOn)}&endsOn=${encodeURIComponent(endsOn)}&error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

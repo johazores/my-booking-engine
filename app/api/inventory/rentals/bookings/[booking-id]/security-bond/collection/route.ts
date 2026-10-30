@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { isRentalFinancialInputValidationError } from '@/server/payments/rental-financial-input-validation.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -24,12 +24,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
   const { 'booking-id': bookingId } = await params;
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/security-bond`;
   const formData = await readInventoryFormData(request);
-  if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+  if (!formData) return finish(redirectToLocalPath(`${path}?error=validation`), 'rejected');
   try {
     const result = await recordRentalSecurityBondManualCollection({ organizationId: organization.id, actorUserId: session.user.id, bookingId, reference: formField(formData, 'reference') });
-    return finish(NextResponse.redirect(new URL(`${path}?status=${result.idempotent ? 'bond-collection-existing' : 'bond-collected'}`, request.url), 303));
+    return finish(redirectToLocalPath(`${path}?status=${result.idempotent ? 'bond-collection-existing' : 'bond-collected'}`));
   } catch (error) {
     const code = errorCode(error);
-    return finish(NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303), code === 'server' ? 'failed' : 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=${code}`), code === 'server' ? 'failed' : 'rejected');
   }
 }

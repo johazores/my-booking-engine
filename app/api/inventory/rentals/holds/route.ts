@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   const formData = await readInventoryFormData(request);
   if (!formData) {
     return finish(
-      NextResponse.redirect(new URL('/inventory/rentals/availability?error=validation', request.url), 303),
+      redirectToLocalPath('/inventory/rentals/availability?error=validation'),
       'rejected',
     );
   }
@@ -58,11 +58,11 @@ export async function POST(request: Request) {
       );
     }
     const status = state.effective ? 'hold-active' : 'hold-inactive';
-    return finish(NextResponse.redirect(new URL(`${path}&status=${status}`, request.url), 303));
+    return finish(redirectToLocalPath(`${path}&status=${status}`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${path}&error=${code}`, request.url), 303),
+      redirectToLocalPath(`${path}&error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

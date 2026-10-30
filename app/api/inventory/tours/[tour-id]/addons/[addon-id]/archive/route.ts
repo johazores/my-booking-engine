@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -17,7 +17,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'tour-
   const tourProductPath = `/inventory/tours/${encodeURIComponent(tourProductId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${tourProductPath}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${tourProductPath}?error=validation`), 'rejected');
   }
   try {
     await archiveTourAddon({
@@ -27,11 +27,11 @@ export async function POST(request: Request, context: { params: Promise<{ 'tour-
       addonId: params['addon-id'],
       confirmation: formField(formData, 'confirmation'),
     });
-    return finish(NextResponse.redirect(new URL(`${tourProductPath}?status=addon-archived`, request.url), 303));
+    return finish(redirectToLocalPath(`${tourProductPath}?status=addon-archived`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${tourProductPath}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${tourProductPath}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

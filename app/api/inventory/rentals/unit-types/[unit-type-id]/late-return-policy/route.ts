@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
   const path = `/inventory/rentals/types/${encodeURIComponent(unitTypeId)}`;
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL(`${path}?error=late-return-policy-validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=late-return-policy-validation`), 'rejected');
   }
 
   try {
@@ -33,12 +33,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
       },
     });
     const status = result.idempotent ? 'late-return-policy-current' : 'late-return-policy-updated';
-    return finish(NextResponse.redirect(new URL(`${path}?status=${status}`, request.url), 303));
+    return finish(redirectToLocalPath(`${path}?status=${status}`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     const pageCode = code === 'server' ? 'server' : `late-return-policy-${code}`;
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=${pageCode}`, request.url), 303),
+      redirectToLocalPath(`${path}?error=${pageCode}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

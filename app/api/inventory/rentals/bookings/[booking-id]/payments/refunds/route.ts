@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { isRentalFinancialInputValidationError } from '@/server/payments/rental-financial-input-validation.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
@@ -29,7 +29,7 @@ export async function POST(
   const formData = await readInventoryFormData(request);
   if (!formData) {
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`),
       'rejected',
     );
   }
@@ -37,7 +37,7 @@ export async function POST(
   const amount = formField(formData, 'amount');
   if (!amount.trim()) {
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=payment-validation`),
       'rejected',
     );
   }
@@ -51,11 +51,11 @@ export async function POST(
       amount,
     });
     const status = result.idempotent ? 'rental-refund-existing' : 'rental-refund-recorded';
-    return finish(NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`, request.url), 303));
+    return finish(redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?status=${status}`));
   } catch (error) {
     const code = rentalRefundErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/bookings/${encodeURIComponent(bookingId)}?error=${code}`),
       code === 'payment-server' ? 'failed' : 'rejected',
     );
   }

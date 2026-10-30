@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'am
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory/amenities?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory/amenities?error=validation'), 'rejected');
   }
 
   try {
@@ -26,11 +26,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'am
       amenityId: routeParams['amenity-id'],
       confirmation: formField(formData, 'confirmation'),
     });
-    return finish(NextResponse.redirect(new URL('/inventory/amenities?status=amenity-archived', request.url), 303));
+    return finish(redirectToLocalPath('/inventory/amenities?status=amenity-archived'));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/amenities?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/inventory/amenities?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

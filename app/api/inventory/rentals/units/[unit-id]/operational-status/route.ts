@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -23,7 +23,7 @@ export async function POST(
   const path = `/inventory/rentals/units/${encodeURIComponent(unitId)}`;
   if (!formData) {
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303),
+      redirectToLocalPath(`${path}?error=validation`),
       'rejected',
     );
   }
@@ -39,15 +39,12 @@ export async function POST(
       },
     });
     return finish(
-      NextResponse.redirect(
-        new URL(`${path}?status=operational-status-updated`, request.url),
-        303,
-      ),
+      redirectToLocalPath(`${path}?status=operational-status-updated`),
     );
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303),
+      redirectToLocalPath(`${path}?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

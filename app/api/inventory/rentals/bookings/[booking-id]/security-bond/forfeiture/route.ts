@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { formField, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
   const path = `/inventory/rentals/bookings/${encodeURIComponent(bookingId)}/security-bond`;
   const formData = await readInventoryFormData(request);
   if (!formData || formField(formData, 'confirmation').trim().toUpperCase() !== 'FORFEIT') {
-    return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=validation`), 'rejected');
   }
   try {
     const result = await forfeitRentalSecurityBondAgainstDamageLiability({
@@ -34,9 +34,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'bo
       actorUserId: session.user.id,
       bookingId,
     });
-    return finish(NextResponse.redirect(new URL(`${path}?status=${result.idempotent ? 'bond-forfeiture-existing' : 'bond-forfeited'}`, request.url), 303));
+    return finish(redirectToLocalPath(`${path}?status=${result.idempotent ? 'bond-forfeiture-existing' : 'bond-forfeited'}`));
   } catch (error) {
     const code = errorCode(error);
-    return finish(NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303), code === 'server' ? 'failed' : 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=${code}`), code === 'server' ? 'failed' : 'rejected');
   }
 }

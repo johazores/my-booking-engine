@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
 import { archiveRentalUnitType } from '@/server/inventory/rental-service.ts';
@@ -11,12 +11,12 @@ export async function POST(request: Request, context: { params: Promise<{ 'unit-
   const unitTypeId = params['unit-type-id'];
   const formData = await readInventoryFormData(request);
   const path = `/inventory/rentals/types/${encodeURIComponent(unitTypeId)}`;
-  if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+  if (!formData) return finish(redirectToLocalPath(`${path}?error=validation`), 'rejected');
   try {
     await archiveRentalUnitType({ organizationId: organization.id, actorUserId: session.user.id, unitTypeId, confirmation: formField(formData, 'confirmation') });
-    return finish(NextResponse.redirect(new URL('/inventory/rentals?status=unit-type-archived', request.url), 303));
+    return finish(redirectToLocalPath('/inventory/rentals?status=unit-type-archived'));
   } catch (error) {
     const code = inventoryErrorCode(error);
-    return finish(NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303), code === 'server' ? 'failed' : 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=${code}`), code === 'server' ? 'failed' : 'rejected');
   }
 }

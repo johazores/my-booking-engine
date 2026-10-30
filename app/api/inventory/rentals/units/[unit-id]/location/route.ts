@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import { formField, inventoryErrorCode, prepareInventoryMutationRequest, readInventoryFormData } from '@/server/inventory/inventory-http.ts';
 import { assignRentalUnitLocation } from '@/server/inventory/rental-service.ts';
@@ -10,7 +10,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
   const formData = await readInventoryFormData(request);
   const { 'unit-id': unitId } = await params;
   const path = `/inventory/rentals/units/${encodeURIComponent(unitId)}`;
-  if (!formData) return finish(NextResponse.redirect(new URL(`${path}?error=validation`, request.url), 303), 'rejected');
+  if (!formData) return finish(redirectToLocalPath(`${path}?error=validation`), 'rejected');
   try {
     await assignRentalUnitLocation({
       organizationId: organization.id,
@@ -18,9 +18,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ 'un
       unitId,
       locationCode: formField(formData, 'locationCode'),
     });
-    return finish(NextResponse.redirect(new URL(`${path}?status=location-assigned`, request.url), 303));
+    return finish(redirectToLocalPath(`${path}?status=location-assigned`));
   } catch (error) {
     const code = inventoryErrorCode(error);
-    return finish(NextResponse.redirect(new URL(`${path}?error=${code}`, request.url), 303), code === 'server' ? 'failed' : 'rejected');
+    return finish(redirectToLocalPath(`${path}?error=${code}`), code === 'server' ? 'failed' : 'rejected');
   }
 }

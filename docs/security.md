@@ -86,3 +86,7 @@ Important commercial operations should record actor, organization, action, resou
 ## Browser form ingress
 
 All implemented production API browser form mutation routes use the shared bounded text-only form parser, including unauthenticated sign-in/sign-up and tenant management. The parser rejects oversized, malformed, ambiguous, and invalidly encoded bodies before business writes; see `docs/form-request-ingress.md`. Origin, media-type, authentication, membership, permission, and tenant/resource checks remain separate and mandatory.
+
+## Inventory mutation redirect security
+
+Authenticated inventory, rental booking, custody, and inventory-related commercial POST responses now use path-only 303 `Location` values through the shared local redirect guard. The shared inventory request finish boundary adds `Cache-Control: no-store` to success and failure responses. Incoming Host values are not used to construct inventory mutation redirect destinations. Form-derived property, room-type, and rate-plan redirect identifiers are encoded before inclusion in paths or query strings. This is defense in depth, not a substitute for trusted proxy Host enforcement, Origin validation, current tenant membership, or operation-level authorization. See `docs/inventory-form-ingress.md`.

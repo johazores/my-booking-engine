@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -15,7 +15,7 @@ export async function POST(request: Request, context: { params: Promise<{ 'room-
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -31,14 +31,14 @@ export async function POST(request: Request, context: { params: Promise<{ 'room-
       confirmation: formField(formData, 'confirmation'),
     });
     const target = propertyId
-      ? `/inventory/${propertyId}${roomTypeId ? `?roomType=${roomTypeId}&status=room-archived` : '?status=room-archived'}`
+      ? `/inventory/${encodeURIComponent(propertyId)}${roomTypeId ? `?roomType=${encodeURIComponent(roomTypeId)}&status=room-archived` : '?status=room-archived'}`
       : '/inventory?status=room-archived';
-    return finish(NextResponse.redirect(new URL(target, request.url), 303));
+    return finish(redirectToLocalPath(target));
   } catch (error) {
-    const target = propertyId ? `/inventory/${propertyId}${roomTypeId ? `?roomType=${roomTypeId}&` : '?'}` : '/inventory?';
+    const target = propertyId ? `/inventory/${encodeURIComponent(propertyId)}${roomTypeId ? `?roomType=${encodeURIComponent(roomTypeId)}&` : '?'}` : '/inventory?';
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`${target}error=${code}`, request.url), 303),
+      redirectToLocalPath(`${target}error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   inventoryErrorCode,
@@ -33,11 +33,11 @@ export async function POST(
       );
     }
     const status = hold.status === 'EXPIRED' ? 'hold-expired' : 'hold-released';
-    return finish(NextResponse.redirect(new URL(`/inventory/rentals/holds?status=${status}`, request.url), 303));
+    return finish(redirectToLocalPath(`/inventory/rentals/holds?status=${status}`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     return finish(
-      NextResponse.redirect(new URL(`/inventory/rentals/holds?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/inventory/rentals/holds?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

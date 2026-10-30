@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { redirectToLocalPath } from '@/server/auth/auth-http.ts';
 
 import {
   formField,
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
 
   const formData = await readInventoryFormData(request);
   if (!formData) {
-    return finish(NextResponse.redirect(new URL('/inventory?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/inventory?error=validation'), 'rejected');
   }
 
   let propertyId = '';
@@ -42,16 +42,16 @@ export async function POST(request: Request) {
     });
     const params = new URLSearchParams({ ratePlan: ratePlanId, status: 'restriction-created' });
     if (roomTypeId) params.set('roomType', roomTypeId);
-    return finish(NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303));
+    return finish(redirectToLocalPath(`/inventory/${encodeURIComponent(propertyId)}/restrictions?${params}`));
   } catch (error) {
     const code = inventoryErrorCode(error);
     const response = !propertyId
-      ? NextResponse.redirect(new URL(`/inventory?error=${code}`, request.url), 303)
+      ? redirectToLocalPath(`/inventory?error=${code}`)
       : (() => {
         const params = new URLSearchParams({ error: code });
         if (ratePlanId) params.set('ratePlan', ratePlanId);
         if (roomTypeId) params.set('roomType', roomTypeId);
-        return NextResponse.redirect(new URL(`/inventory/${propertyId}/restrictions?${params}`, request.url), 303);
+        return redirectToLocalPath(`/inventory/${encodeURIComponent(propertyId)}/restrictions?${params}`);
       })();
     return finish(response, code === 'server' ? 'failed' : 'rejected');
   }
