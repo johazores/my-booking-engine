@@ -1,5 +1,6 @@
 import { db } from '../database.ts';
 import { createSessionExpiry } from './auth-domain.ts';
+import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 
 interface RegisteredUserInput {
   email: string;
@@ -37,8 +38,10 @@ export async function createRegisteredUserWithSession({
   displayName,
   passwordHash,
   sessionTokenHash,
-}: RegisteredUserInput) {
+}: RegisteredUserInput, signal?: AbortSignal) {
+  assertAuthRequestNotAborted(signal);
   const expiresAt = createSessionExpiry(await readDatabaseClock());
+  assertAuthRequestNotAborted(signal);
   // Nested credential/session creation remains atomic with user creation.
   const user = await db.user.create({
     data: {
@@ -80,8 +83,10 @@ export function findPasswordCredentialByEmail(email: string) {
   });
 }
 
-export async function createAuthSession({ userId, tokenHash }: SessionInput) {
+export async function createAuthSession({ userId, tokenHash }: SessionInput, signal?: AbortSignal) {
+  assertAuthRequestNotAborted(signal);
   const expiresAt = createSessionExpiry(await readDatabaseClock());
+  assertAuthRequestNotAborted(signal);
   await db.authSession.create({
     data: {
       userId,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AuthCryptoCapacityError, createAuthCryptoLimiter } from './auth-crypto-capacity.ts';
+import { AuthRequestAbortedError } from './auth-request-abort.ts';
 
 function deferred() {
   let release!: () => void;
@@ -65,4 +66,63 @@ test('invalid capacity settings fail before accepting work', () => {
     { maxActive: 1, maxQueued: 1, queueTimeoutMs: 0 },
     { maxActive: 1.5, maxQueued: 1, queueTimeoutMs: 10 },
   ]) assert.throws(() => createAuthCryptoLimiter(options), RangeError);
+});
+
+test('pre-aborted requests never occupy a worker or execute crypto', async () => {
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 1, queueTimeoutMs: 100 });
+  const controller = new AbortController();
+  controller.abort();
+  let ran = false;
+  await assert.rejects(() => run(async () => { ran = true; }, controller.signal), AuthRequestAbortedError);
+  assert.equal(ran, false);
+  assert.equal(await run(async () => 'next'), 'next');
+});
+
+test('aborted middle waiter is removed without displacing FIFO neighbors', async () => {
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 2, queueTimeoutMs: 1000 });
+  const blocker = deferred();
+  const order: number[] = [];
+  const first = run(async () => { order.push(1); await blocker.promise; });
+  const aborted = new AbortController();
+  let abortedRan = false;
+  const second = run(async () => { abortedRan = true; }, aborted.signal);
+  const third = run(async () => { order.push(3); });
+  aborted.abort();
+  await assert.rejects(second, AuthRequestAbortedError);
+  const fourth = run(async () => { order.push(4); });
+  blocker.release();
+  await Promise.all([first, third, fourth]);
+  assert.equal(abortedRan, false);
+  assert.deepEqual(order, [1, 3, 4]);
+  assert.equal(await run(async () => 'recovered'), 'recovered');
+});
+
+test('aborting a running derivation waits for completion then rejects and releases the slot', async () => {
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 1, queueTimeoutMs: 1000 });
+  const blocker = deferred();
+  const controller = new AbortController();
+  const first = run(async () => { await blocker.promise; return 'secret'; }, controller.signal);
+  let nextRan = false;
+  const next = run(async () => { nextRan = true; return 'next'; });
+  controller.abort();
+  assert.equal(nextRan, false);
+  blocker.release();
+  await assert.rejects(first, AuthRequestAbortedError);
+  assert.equal(await next, 'next');
+  assert.equal(nextRan, true);
+});
+
+test('aborted waiter can never execute after the active worker finishes', async () => {
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 1, queueTimeoutMs: 1000 });
+  const blocker = deferred();
+  const first = run(async () => blocker.promise);
+  const controller = new AbortController();
+  let ran = false;
+  const waiting = run(async () => { ran = true; }, controller.signal);
+  controller.abort();
+  await assert.rejects(waiting, AuthRequestAbortedError);
+  blocker.release();
+  await first;
+  assert.equal(ran, false);
+  assert.equal(await run(async () => 'okay'), 'okay');
 });

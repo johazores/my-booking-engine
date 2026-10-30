@@ -1,3 +1,5 @@
+import { AuthRequestAbortedError, assertAuthRequestNotAborted } from './auth-request-abort.ts';
+
 /** Bound memory-intensive scrypt work independently of HTTP rate limits. */
 export class AuthCryptoCapacityError extends Error {
   constructor() {
@@ -27,7 +29,8 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
   let active = 0;
   const waiting: WaitingRequest[] = [];
 
-  async function acquire() {
+  async function acquire(signal?: AbortSignal) {
+    assertAuthRequestNotAborted(signal);
     if (active < maxActive && waiting.length === 0) {
       active += 1;
       return;
@@ -35,19 +38,42 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
     if (waiting.length >= maxQueued) throw new AuthCryptoCapacityError();
 
     await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout>;
+      const removeWaiter = () => {
+        const index = waiting.indexOf(waiter);
+        if (index !== -1) waiting.splice(index, 1);
+      };
+      const cleanup = () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', onAbort);
+      };
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        removeWaiter();
+        reject(new AuthRequestAbortedError());
+      };
       const waiter: WaitingRequest = {
         admit: () => {
-          clearTimeout(timeout);
+          if (settled) return;
+          settled = true;
+          cleanup();
           resolve();
         },
       };
-      const timeout = setTimeout(() => {
-        const index = waiting.indexOf(waiter);
-        if (index === -1) return;
-        waiting.splice(index, 1);
+      timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        removeWaiter();
         reject(new AuthCryptoCapacityError());
       }, queueTimeoutMs);
       waiting.push(waiter);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      // Covers an abort between the initial check and listener registration.
+      if (signal?.aborted) onAbort();
     });
   }
 
@@ -57,10 +83,14 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
     else active -= 1;
   }
 
-  return async function runWithCapacity<T>(work: () => Promise<T>): Promise<T> {
-    await acquire();
+  return async function runWithCapacity<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    await acquire(signal);
     try {
-      return await work();
+      assertAuthRequestNotAborted(signal);
+      const result = await work();
+      // Scrypt itself is not cancellable; do not use its result after a disconnect.
+      assertAuthRequestNotAborted(signal);
+      return result;
     } finally {
       release();
     }

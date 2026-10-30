@@ -2,6 +2,7 @@ import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } fr
 import { promisify } from 'node:util';
 import { hasUnsafeIdentityControls, normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
 import { AuthCryptoCapacityError, runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
+import { AuthRequestAbortedError, assertAuthRequestNotAborted } from './auth-request-abort.ts';
 
 const scrypt = promisify(scryptCallback);
 
@@ -71,19 +72,20 @@ export function validateSignUpInput(input: {
   return { email, password, displayName };
 }
 
-async function derivePasswordKey(password: string, salt: Buffer) {
+async function derivePasswordKey(password: string, salt: Buffer, signal?: AbortSignal) {
   return runWithAuthCryptoCapacity(async () => (await scrypt(password, salt, SCRYPT_KEY_LENGTH, {
     N: SCRYPT_N,
     r: SCRYPT_R,
     p: SCRYPT_P,
     maxmem: SCRYPT_MAXMEM,
-  })) as Buffer);
+  })) as Buffer, signal);
 }
 
-export async function hashPassword(password: string) {
+export async function hashPassword(password: string, signal?: AbortSignal) {
   assertValidPassword(password);
+  assertAuthRequestNotAborted(signal);
   const salt = randomBytes(16);
-  const key = await derivePasswordKey(password, salt);
+  const key = await derivePasswordKey(password, salt, signal);
 
   return [
     'scrypt',
@@ -96,7 +98,8 @@ export async function hashPassword(password: string) {
   ].join('$');
 }
 
-export async function verifyPassword(password: string, encodedHash: string) {
+export async function verifyPassword(password: string, encodedHash: string, signal?: AbortSignal) {
+  assertAuthRequestNotAborted(signal);
   if (!validatePassword(password) || typeof encodedHash !== 'string') return false;
   const parts = encodedHash.split('$');
   if (parts.length !== 7 || parts[0] !== 'scrypt' || parts[1] !== PASSWORD_HASH_VERSION) {
@@ -124,11 +127,11 @@ export async function verifyPassword(password: string, encodedHash: string) {
       return false;
     }
 
-    const actual = await derivePasswordKey(password, salt);
+    const actual = await derivePasswordKey(password, salt, signal);
     return timingSafeEqual(actual, expected);
   } catch (error) {
     // Saturation is an operational failure, never an incorrect-password result.
-    if (error instanceof AuthCryptoCapacityError) throw error;
+    if (error instanceof AuthCryptoCapacityError || error instanceof AuthRequestAbortedError) throw error;
     return false;
   }
 }

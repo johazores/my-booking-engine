@@ -48,6 +48,13 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
       () => authService.signInWithPassword({ email, password: 'too-short' }),
       /Password must be between/,
     );
+    const abandoned = new AbortController();
+    abandoned.abort();
+    await assert.rejects(
+      () => authService.registerWithPassword({ email, password }, abandoned.signal),
+      { name: 'AuthRequestAbortedError' },
+    );
+    assert.equal(await db.user.count({ where: { email } }), 0);
     const registration = await authService.registerWithPassword({
       email,
       password,
@@ -79,6 +86,14 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
     });
     assert.equal(await authService.resolveAuthSession(registration.token), null);
 
+    const abortedSignIn = new AbortController();
+    abortedSignIn.abort();
+    const sessionsBeforeAbort = await db.authSession.count({ where: { userId } });
+    await assert.rejects(
+      () => authService.signInWithPassword({ email, password }, abortedSignIn.signal),
+      { name: 'AuthRequestAbortedError' },
+    );
+    assert.equal(await db.authSession.count({ where: { userId } }), sessionsBeforeAbort);
     const signedIn = await authService.signInWithPassword({ email, password });
     assert.equal(signedIn.user.id, userId);
     await assertDatabaseClockSessionExpiry(signedIn.token, signedIn.expiresAt);

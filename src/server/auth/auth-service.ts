@@ -7,6 +7,7 @@ import {
   isCanonicalSessionToken,
   verifyPassword,
 } from './auth-domain.ts';
+import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 import {
   createAuthSession,
   createRegisteredUserWithSession,
@@ -31,9 +32,11 @@ export async function registerWithPassword(input: {
   email: string;
   password: string;
   displayName?: string;
-}) {
+}, signal?: AbortSignal) {
   const { email, password, displayName } = validateSignUpInput(input);
-  const passwordHash = await hashPassword(password);
+  assertAuthRequestNotAborted(signal);
+  const passwordHash = await hashPassword(password, signal);
+  assertAuthRequestNotAborted(signal);
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
   try {
@@ -42,7 +45,7 @@ export async function registerWithPassword(input: {
       displayName,
       passwordHash,
       sessionTokenHash: tokenHash,
-    });
+    }, signal);
 
     return { user, token, expiresAt };
   } catch (error) {
@@ -57,26 +60,29 @@ export async function registerWithPassword(input: {
 export async function signInWithPassword(input: {
   email: string;
   password: string;
-}) {
+}, signal?: AbortSignal) {
   const { email, password } = validateSignInInput(input);
+  assertAuthRequestNotAborted(signal);
   const credential = await findPasswordCredentialByEmail(email);
+  assertAuthRequestNotAborted(signal);
 
   if (!credential) {
-    await hashPassword('invalid-credential-padding');
+    await hashPassword('invalid-credential-padding', signal);
     throw new InvalidCredentialsError('Invalid email or password.');
   }
 
-  const passwordMatches = await verifyPassword(password, credential.passwordHash);
+  const passwordMatches = await verifyPassword(password, credential.passwordHash, signal);
   if (!passwordMatches) {
     throw new InvalidCredentialsError('Invalid email or password.');
   }
 
+  assertAuthRequestNotAborted(signal);
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
   const expiresAt = await createAuthSession({
     userId: credential.userId,
     tokenHash,
-  });
+  }, signal);
 
   return {
     user: {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AuthCryptoCapacityError, runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
+import { AuthRequestAbortedError } from './auth-request-abort.ts';
 import {
   AUTH_PASSWORD_MAX_LENGTH,
   AUTH_PASSWORD_MIN_LENGTH,
@@ -175,4 +176,13 @@ test('scrypt capacity saturation fails closed for both password hashing and veri
     release();
     await Promise.all(occupied);
   }
+});
+
+test('aborted credential derivations never return a hash or a verified credential', async () => {
+  const password = 'correct horse battery staple';
+  const encoded = await hashPassword(password);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(() => hashPassword(password, controller.signal), AuthRequestAbortedError);
+  await assert.rejects(() => verifyPassword(password, encoded, controller.signal), AuthRequestAbortedError);
 });

@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       return finish(response, 'rejected');
     }
 
-    const result = await signInWithPassword(credentials);
+    const result = await signInWithPassword(credentials, request.signal);
     const response = NextResponse.redirect(new URL('/account?status=signed-in', request.url), 303);
     response.cookies.set(AUTH_SESSION_COOKIE, result.token, {
       ...authSessionCookieOptions,
