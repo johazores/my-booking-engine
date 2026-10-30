@@ -9,15 +9,27 @@ const signUpRoute = readFileSync(new URL('../app/api/auth/sign-up/route.ts', imp
 
 test('session creation uses database-clock expiry and returns it to the browser boundary', () => {
   assert.match(repository, /SELECT statement_timestamp\(\) AS "now"/);
-  assert.equal(repository.match(/createSessionExpiry\(await readDatabaseClock\(\)\)/g)?.length, 2);
+  assert.equal(repository.match(/createSessionExpiry\(await readDatabaseClock\(\)\)/g)?.length, 1);
   assert.match(repository, /return \{ user, expiresAt \};/);
-  assert.match(repository, /return expiresAt;/);
+  assert.match(repository, /return rows\[0\]\.expiresAt;/);
   assert.match(service, /const \{ user, expiresAt \} = await createRegisteredUserWithSession/);
   assert.match(service, /const expiresAt = await createAuthSession/);
+  assert.match(service, /if \(!expiresAt\) throw new InvalidCredentialsError/);
   assert.doesNotMatch(service, /createSessionExpiry\(/);
   // Both browser cookies must inherit the expiry returned by persisted session creation.
   assert.match(signInRoute, /expires: result\.expiresAt/);
   assert.match(signUpRoute, /expires: result\.expiresAt/);
+});
+
+test('sign-in session creation atomically locks and checks current user status', () => {
+  assert.match(repository, /WITH active_user AS \(/);
+  assert.match(repository, /"id" = \$\{userId\}::uuid AND "status" = 'ACTIVE'/);
+  assert.match(repository, /FOR SHARE/);
+  assert.match(repository, /INSERT INTO "auth_sessions"/);
+  assert.match(repository, /statement_timestamp\(\) \+ \(\$\{AUTH_SESSION_TTL_MS\} \* INTERVAL '1 millisecond'\)/);
+  assert.match(repository, /RETURNING "expiresAt"/);
+  assert.match(repository, /if \(rows.length === 0\) return null;/);
+  assert.doesNotMatch(repository, /db\.authSession\.create\(/);
 });
 
 test('session resolution and idempotent revocation use PostgreSQL clock and bind token digests', () => {

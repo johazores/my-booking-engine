@@ -83,6 +83,8 @@ export async function signInWithPassword(input: {
     userId: credential.userId,
     tokenHash,
   }, signal);
+  // Password verification may have raced with account suspension.
+  if (!expiresAt) throw new InvalidCredentialsError('Invalid email or password.');
 
   return {
     user: {

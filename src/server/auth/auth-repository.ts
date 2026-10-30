@@ -1,5 +1,5 @@
 import { db } from '../database.ts';
-import { createSessionExpiry } from './auth-domain.ts';
+import { AUTH_SESSION_TTL_MS, createSessionExpiry } from './auth-domain.ts';
 import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 
 interface RegisteredUserInput {
@@ -83,18 +83,29 @@ export function findPasswordCredentialByEmail(email: string) {
   });
 }
 
+/** A suspended identity must not gain a new session after password verification. */
 export async function createAuthSession({ userId, tokenHash }: SessionInput, signal?: AbortSignal) {
   assertAuthRequestNotAborted(signal);
-  const expiresAt = createSessionExpiry(await readDatabaseClock());
-  assertAuthRequestNotAborted(signal);
-  await db.authSession.create({
-    data: {
-      userId,
-      tokenHash,
-      expiresAt,
-    },
-  });
-  return expiresAt;
+  // The row lock serializes this admission with concurrent user suspension.
+  // Expiry and insertion use the same PostgreSQL statement and clock.
+  const rows = await db.$queryRaw<Array<{ expiresAt: Date }>>`
+    WITH active_user AS (
+      SELECT "id" FROM "users"
+      WHERE "id" = ${userId}::uuid AND "status" = 'ACTIVE'
+      FOR SHARE
+    )
+    INSERT INTO "auth_sessions" ("userId", "tokenHash", "expiresAt")
+    SELECT active_user."id", ${tokenHash},
+           statement_timestamp() + (${AUTH_SESSION_TTL_MS} * INTERVAL '1 millisecond')
+    FROM active_user
+    RETURNING "expiresAt"
+  `;
+  if (rows.length === 0) return null;
+  if (rows.length !== 1 || !(rows[0].expiresAt instanceof Date) ||
+      !Number.isFinite(rows[0].expiresAt.getTime())) {
+    throw new Error('Authentication session insertion returned an invalid expiry.');
+  }
+  return rows[0].expiresAt;
 }
 
 /** Check expiry and principal status together against the database clock. */

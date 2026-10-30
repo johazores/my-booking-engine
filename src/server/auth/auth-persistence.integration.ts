@@ -12,9 +12,10 @@ if (!testDatabaseUrl || databaseUrl !== testDatabaseUrl) {
 }
 
 test('password registration, session expiry, revocation, sign-in, and user suspension persist safely', async () => {
-  const [{ db }, authService] = await Promise.all([
+  const [{ db }, authService, authRepository] = await Promise.all([
     import('../database.ts'),
     import('./auth-service.ts'),
+    import('./auth-repository.ts'),
   ]);
 
   const suffix = crypto.randomUUID();
@@ -121,11 +122,32 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
 
     const signedInAgain = await authService.signInWithPassword({ email, password });
     await assertDatabaseClockSessionExpiry(signedInAgain.token, signedInAgain.expiresAt);
+
+    // Direct session persistence must recheck ACTIVE status, not trust a
+    // credential read that could predate a concurrent suspension.
+    const activeTokenHash = hashSessionToken(crypto.randomUUID());
+    const activeExpiry = await authRepository.createAuthSession({ userId, tokenHash: activeTokenHash });
+    assert.ok(activeExpiry instanceof Date);
+    const activeRow = await db.authSession.findUnique({ where: { tokenHash: activeTokenHash } });
+    assert.equal(activeRow?.expiresAt.getTime(), activeExpiry.getTime());
+
     await db.user.update({
       where: { id: userId },
       data: { status: 'SUSPENDED' },
     });
     assert.equal(await authService.resolveAuthSession(signedInAgain.token), null);
+    const beforeDeniedSession = await db.authSession.count({ where: { userId } });
+    const suspendedTokenHash = hashSessionToken(crypto.randomUUID());
+    assert.equal(await authRepository.createAuthSession({
+      userId,
+      tokenHash: suspendedTokenHash,
+    }), null);
+    assert.equal(await db.authSession.count({ where: { userId } }), beforeDeniedSession);
+    assert.equal(await db.authSession.findUnique({ where: { tokenHash: suspendedTokenHash } }), null);
+    await assert.rejects(
+      () => authService.signInWithPassword({ email, password }),
+      { name: 'InvalidCredentialsError' },
+    );
   } finally {
     try {
       // Registration can persist a user before a later step fails to return its ID.
