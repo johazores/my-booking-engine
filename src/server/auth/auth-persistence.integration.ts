@@ -131,10 +131,39 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
     const activeRow = await db.authSession.findUnique({ where: { tokenHash: activeTokenHash } });
     assert.equal(activeRow?.expiresAt.getTime(), activeExpiry.getTime());
 
-    await db.user.update({
-      where: { id: userId },
-      data: { status: 'SUSPENDED' },
+    // A session insert racing with an uncommitted suspension must wait for
+    // the user row lock and then reject the newly suspended principal.
+    let markSuspensionLocked!: () => void;
+    let releaseSuspension!: () => void;
+    const suspensionLocked = new Promise<void>((resolve) => { markSuspensionLocked = resolve; });
+    const suspensionRelease = new Promise<void>((resolve) => { releaseSuspension = resolve; });
+    const suspension = db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { status: 'SUSPENDED' },
+      });
+      markSuspensionLocked();
+      await suspensionRelease;
     });
+    const racingTokenHash = hashSessionToken(crypto.randomUUID());
+    let racingSession: ReturnType<typeof authRepository.createAuthSession> | undefined;
+    try {
+      // If the update transaction fails before acquiring its lock, do not hang.
+      await Promise.race([suspensionLocked, suspension.then(() => {
+        throw new Error('Suspension transaction completed before its lock was observed.');
+      })]);
+      racingSession = authRepository.createAuthSession({ userId, tokenHash: racingTokenHash });
+      let settled = false;
+      void racingSession.then(() => { settled = true; }, () => { settled = true; });
+      await new Promise<void>((resolve) => setTimeout(resolve, 75));
+      assert.equal(settled, false, 'Session insertion must wait for the suspended user row lock.');
+    } finally {
+      releaseSuspension();
+      await suspension;
+    }
+    assert.ok(racingSession);
+    assert.equal(await racingSession, null);
+    assert.equal(await db.authSession.findUnique({ where: { tokenHash: racingTokenHash } }), null);
     assert.equal(await authService.resolveAuthSession(signedInAgain.token), null);
     const beforeDeniedSession = await db.authSession.count({ where: { userId } });
     const suspendedTokenHash = hashSessionToken(crypto.randomUUID());

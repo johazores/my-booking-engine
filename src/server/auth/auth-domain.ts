@@ -1,8 +1,8 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { hasUnsafeIdentityControls, normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
-import { AuthCryptoCapacityError, runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
-import { AuthRequestAbortedError, assertAuthRequestNotAborted } from './auth-request-abort.ts';
+import { runWithAuthCryptoCapacity } from './auth-crypto-capacity.ts';
+import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 
 const scrypt = promisify(scryptCallback);
 
@@ -115,25 +115,21 @@ export async function verifyPassword(password: string, encodedHash: string, sign
     return false;
   }
 
-  try {
-    // Reject decoder-tolerated aliases, padding, and corrupted stored hashes.
-    if (!/^[A-Za-z0-9_-]{22}$/.test(saltValue) ||
-        !/^[A-Za-z0-9_-]{86}$/.test(hashValue)) return false;
-    const salt = Buffer.from(saltValue, 'base64url');
-    const expected = Buffer.from(hashValue, 'base64url');
-    if (salt.length !== 16 || expected.length !== SCRYPT_KEY_LENGTH ||
-        salt.toString('base64url') !== saltValue ||
-        expected.toString('base64url') !== hashValue) {
-      return false;
-    }
-
-    const actual = await derivePasswordKey(password, salt, signal);
-    return timingSafeEqual(actual, expected);
-  } catch (error) {
-    // Saturation is an operational failure, never an incorrect-password result.
-    if (error instanceof AuthCryptoCapacityError || error instanceof AuthRequestAbortedError) throw error;
+  // Reject decoder-tolerated aliases, padding, and corrupted stored hashes.
+  if (!/^[A-Za-z0-9_-]{22}$/.test(saltValue) ||
+      !/^[A-Za-z0-9_-]{86}$/.test(hashValue)) return false;
+  const salt = Buffer.from(saltValue, 'base64url');
+  const expected = Buffer.from(hashValue, 'base64url');
+  if (salt.length !== 16 || expected.length !== SCRYPT_KEY_LENGTH ||
+      salt.toString('base64url') !== saltValue ||
+      expected.toString('base64url') !== hashValue) {
     return false;
   }
+
+  // Only malformed stored credentials are invalid-password results. Crypto
+  // failures, queue exhaustion, and aborts must propagate as operational errors.
+  const actual = await derivePasswordKey(password, salt, signal);
+  return timingSafeEqual(actual, expected);
 }
 
 export function createSessionToken() {

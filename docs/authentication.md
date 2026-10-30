@@ -11,7 +11,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 - Passwords must contain 12–128 Unicode characters.
 - Password hashes use Node.js scrypt with a random 16-byte salt, versioned parameters, and a 64-byte derived key.
 - To bound per-process scrypt memory under concurrent sign-in/sign-up traffic, at most two derivations execute at once; up to 16 requests may wait for at most 10 seconds. Overflow fails closed with generic browser feedback, without persisting credentials or sessions. Aborted browser requests are removed from the queue and rechecked before session persistence. Already-running scrypt cannot be cancelled and already-started database writes are not rolled back by a disconnect. These limits do not replace edge protection or the shared PostgreSQL admission budgets.
-- Only encoded password hashes are stored. Verification rejects noncanonical base64url salt/key encodings and noncanonical scrypt parameter strings rather than accepting decoder aliases or corrupted credential records.
+- Only encoded password hashes are stored. Verification rejects noncanonical base64url salt/key encodings and noncanonical scrypt parameter strings rather than accepting decoder aliases or corrupted credential records. Unexpected scrypt failures propagate as operational errors rather than being reported as incorrect passwords.
 - Credential lookup requires an `ACTIVE` user.
 - Failed sign-in responses remain generic and do not reveal whether an email exists.
 
@@ -49,7 +49,7 @@ The protected account organization list reuses the tenant-safe organization repo
 
 Dependency-free authentication domain tests cover password policy, salted/versioned password hashing, token entropy/digest behavior, and absolute session expiry calculation. Authentication HTTP policy tests cover exact same-origin enforcement, accepted credential form media types, unsupported request media types, missing-session redirects, invalid/expired-session redirects, and successful protected-session pass-through.
 
-The disposable PostgreSQL authentication integration test covers registration, credential persistence, database-clock session expiry and cookie-expiry parity, active session resolution, forced session expiry rejection, database-clock revocation, subsequent sign-in, active-user-only session insertion, rejection of new sessions for suspended users, and immediate loss of access when the user is suspended.
+The disposable PostgreSQL authentication integration test covers registration, credential persistence, database-clock session expiry and cookie-expiry parity, active session resolution, forced session expiry rejection, database-clock revocation, subsequent sign-in, active-user-only session insertion, rejection of new sessions for suspended users, a concurrent uncommitted suspension versus session-insertion row-lock regression, and immediate loss of access when the user is suspended.
 
 The full database-backed integration path still requires the explicitly acknowledged disposable PostgreSQL target described in the database development documentation; blocked environments must not claim that live verification passed.
 
