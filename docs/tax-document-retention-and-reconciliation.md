@@ -40,6 +40,10 @@ ATO GST guidance in GSTR 2006/3 describes a record-retention period that can ext
 
 Australian Privacy Principle 11 separately requires covered entities to consider whether they are still permitted to retain personal information and, subject to legal-retention exceptions, to take reasonable steps to destroy or de-identify personal information that is no longer needed. SF's current bookingless customer-profile workflow is only one narrow lifecycle boundary; booking-linked copies and legally retained records remain subject to tenant legal/privacy review.
 
+## Browser reconciliation request boundary
+
+The operator-triggered reconciliation POST returns only validated local-path HTTP 303 redirects through the shared browser redirect helper. Redirect targets are not derived from the inbound request URL or Host header. Every response, including authentication, authorization, limit, validation, and unexpected failure outcomes, receives `Cache-Control: no-store` at the request-observation finish boundary. The existing write-context same-origin check, current tenant resolution, and service-level `booking:read` / `payment:read` permission checks remain authoritative. The repository-wide browser POST redirect regression test includes this route; it does not replace trusted proxy Host validation or live Node 24 execution.
+
 ## Operational use
 
 Run reconciliation after material tax-document migrations, before accounting exports used for period close, and whenever document-integrity concerns are investigated. A `VERIFIED` result means the current tenant register passed the implemented evidence contracts at that point in time. It is not legal advice and does not replace external accounting reconciliation, statutory filing, privacy review, or jurisdiction-specific legal approval.
