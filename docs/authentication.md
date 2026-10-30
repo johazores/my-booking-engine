@@ -15,6 +15,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 - Only encoded password hashes are stored. Verification rejects noncanonical base64url salt/key encodings and noncanonical scrypt parameter strings rather than accepting decoder aliases or corrupted credential records. Unexpected scrypt failures propagate as operational errors rather than being reported as incorrect passwords.
 - Credential lookup requires an `ACTIVE` user.
 - Failed sign-in responses remain generic and do not reveal whether an email exists.
+- Registration treats only a confirmed `users.email` uniqueness failure as an existing-account conflict. Other unique constraint failures in the atomic user/credential/session creation (including session-token collisions) remain operational errors, not mislabeled account conflicts. The browser response stays generic in both cases. A checked-in disposable-database regression verifies duplicate registration creates no extra user or session; this test still requires live execution.
 
 ## Sessions
 

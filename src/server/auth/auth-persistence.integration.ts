@@ -62,6 +62,15 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
       displayName: 'Auth Test User',
     });
     userId = registration.user.id;
+    // Only the existing user email constraint may be treated as a registration
+    // conflict. The nested user/credential/session write must remain atomic.
+    const sessionsBeforeDuplicate = await db.authSession.count({ where: { userId } });
+    await assert.rejects(
+      () => authService.registerWithPassword({ email, password }),
+      { name: 'AuthConflictError' },
+    );
+    assert.equal(await db.user.count({ where: { email } }), 1);
+    assert.equal(await db.authSession.count({ where: { userId } }), sessionsBeforeDuplicate);
     await assertDatabaseClockSessionExpiry(registration.token, registration.expiresAt);
 
     const credential = await db.passwordCredential.findUnique({

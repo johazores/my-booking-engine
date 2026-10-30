@@ -31,7 +31,7 @@ The PostgreSQL identity/global admission budgets still apply first, and trusted-
 
 - No trusted client-source identity is available in the app runtime. Do not trust caller-supplied `X-Forwarded-For`. Verify edge header ownership and add trusted per-source protection independently.
 - Global caps can temporarily deny legitimate users during sustained abuse. Monitor privacy-safe operation/outcome counts and tune with real production evidence. This does not replace DDoS/WAF protection.
-- Sign-up now maps duplicate-address failures to the same generic browser error as other registration failures. However, successful registration still creates an immediate session, so the success/failure distinction can reveal account existence. Full remediation requires a real email verification/recovery lifecycle, not a fake success response.
+- Sign-up maps confirmed duplicate-user-email failures to the same generic browser error as other registration failures, without misclassifying unrelated nested uniqueness failures as existing accounts. However, successful registration still creates an immediate session, so the success/failure distinction can reveal account existence. Full remediation requires a real email verification/recovery lifecycle, not a fake success response.
 - The checked-in migration and integration suite require live Node 24 and disposable PostgreSQL validation before production rollout. The Phase 2 checklist remains open until that evidence and the missing protections exist.
 
 Run `npm run test` and guarded `npm run test:database` with the documented disposable target.

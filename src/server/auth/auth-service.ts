@@ -8,6 +8,7 @@ import {
   verifyPassword,
 } from './auth-domain.ts';
 import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
+import { isRegistrationEmailConflict } from './auth-conflict-domain.ts';
 import {
   createAuthSession,
   createRegisteredUserWithSession,
@@ -18,15 +19,6 @@ import {
 
 export class AuthConflictError extends Error {}
 export class InvalidCredentialsError extends Error {}
-
-function isUniqueConstraintError(error: unknown) {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    error.code === 'P2002'
-  );
-}
 
 export async function registerWithPassword(input: {
   email: string;
@@ -49,7 +41,7 @@ export async function registerWithPassword(input: {
 
     return { user, token, expiresAt };
   } catch (error) {
-    if (isUniqueConstraintError(error)) {
+    if (isRegistrationEmailConflict(error)) {
       throw new AuthConflictError('An account with this email already exists.');
     }
 
