@@ -40,7 +40,7 @@ export default async function SignUpPage({
           </label>
           <label className="sf-field">
             <span>Email</span>
-            <input name="email" type="email" autoComplete="email" required />
+            <input name="email" type="email" autoComplete="email" maxLength={320} required />
           </label>
           <label className="sf-field">
             <span>Password</span>

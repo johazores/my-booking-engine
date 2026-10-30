@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { normalizeUserEmail, validateUserEmail } from '../users/user-domain.ts';
 
 const scrypt = promisify(scryptCallback);
 
@@ -16,6 +17,15 @@ const SCRYPT_MAXMEM = 128 * 1024 * 1024;
 const PASSWORD_HASH_VERSION = '1';
 
 export class AuthValidationError extends Error {}
+
+/** Canonicalize browser credential identities with an auth-specific validation error. */
+export function createCanonicalAuthEmail(value: string) {
+  const email = normalizeUserEmail(value);
+  if (!validateUserEmail(email)) {
+    throw new AuthValidationError('Enter a valid email address.');
+  }
+  return email;
+}
 
 export function validatePassword(password: string) {
   const length = [...password].length;

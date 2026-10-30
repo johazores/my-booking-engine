@@ -1,6 +1,7 @@
-import { createCanonicalUserEmail } from '../users/user-domain.ts';
 import {
   AuthValidationError,
+  assertValidPassword,
+  createCanonicalAuthEmail,
   createSessionExpiry,
   createSessionToken,
   hashPassword,
@@ -49,7 +50,7 @@ export async function registerWithPassword(input: {
   password: string;
   displayName?: string;
 }) {
-  const email = createCanonicalUserEmail(input.email);
+  const email = createCanonicalAuthEmail(input.email);
   const displayName = normalizeDisplayName(input.displayName);
   const passwordHash = await hashPassword(input.password);
   const token = createSessionToken();
@@ -79,7 +80,9 @@ export async function signInWithPassword(input: {
   email: string;
   password: string;
 }) {
-  const email = createCanonicalUserEmail(input.email);
+  const email = createCanonicalAuthEmail(input.email);
+  // Enforce the registration password bounds before any credential lookup.
+  assertValidPassword(input.password);
   const credential = await findPasswordCredentialByEmail(email);
 
   if (!credential) {

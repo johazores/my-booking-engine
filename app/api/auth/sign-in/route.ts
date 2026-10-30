@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
-import { AuthValidationError } from '@/server/auth/auth-domain.ts';
+import { AuthValidationError, createCanonicalAuthEmail } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_SESSION_COOKIE,
   authSessionCookieOptions,
@@ -44,7 +44,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attempt = await reserveAuthAttempt('sign-in', field(formData, 'email'));
+    // Reject malformed identities before they consume shared deployment capacity.
+    const email = createCanonicalAuthEmail(field(formData, 'email'));
+    const attempt = await reserveAuthAttempt('sign-in', email);
     if (!attempt.allowed) {
       const response = NextResponse.redirect(new URL('/sign-in?error=rate-limited', request.url), 303);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
@@ -52,7 +54,7 @@ export async function POST(request: Request) {
     }
 
     const result = await signInWithPassword({
-      email: field(formData, 'email'),
+      email,
       password: field(formData, 'password'),
     });
     const response = NextResponse.redirect(new URL('/account?status=signed-in', request.url), 303);

@@ -21,7 +21,7 @@
 
 ## Authentication security
 
-**Partially implemented, not production-validated:** sign-in and sign-up now reserve bounded database-clock attempts before credential work. Identity keys are keyed HMACs and counters are atomic across replicas. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
+**Partially implemented, not production-validated:** sign-in and sign-up reject malformed email identities before spending shared quota, then reserve bounded database-clock attempts before credential work. Both services independently enforce canonical email validation, and sign-in enforces the registration password length policy before credential lookup. Identity keys are keyed HMACs and counters are atomic across replicas. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
 
 The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 

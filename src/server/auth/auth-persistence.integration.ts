@@ -22,6 +22,18 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
   let userId: string | undefined;
 
   try {
+    await assert.rejects(
+      () => authService.registerWithPassword({ email: 'invalid', password }),
+      /valid email address/,
+    );
+    await assert.rejects(
+      () => authService.signInWithPassword({ email: 'invalid', password }),
+      /valid email address/,
+    );
+    await assert.rejects(
+      () => authService.signInWithPassword({ email, password: 'too-short' }),
+      /Password must be between/,
+    );
     const registration = await authService.registerWithPassword({
       email,
       password,

@@ -4,6 +4,9 @@ import {
   AUTH_PASSWORD_MAX_LENGTH,
   AUTH_PASSWORD_MIN_LENGTH,
   AUTH_SESSION_TOKEN_BYTES,
+  AuthValidationError,
+  assertValidPassword,
+  createCanonicalAuthEmail,
   createSessionExpiry,
   createSessionToken,
   hashPassword,
@@ -18,6 +21,15 @@ test('password policy enforces bounded length without mutating the secret', () =
   assert.equal(validatePassword('a'.repeat(AUTH_PASSWORD_MAX_LENGTH)), true);
   assert.equal(validatePassword('a'.repeat(AUTH_PASSWORD_MAX_LENGTH + 1)), false);
   assert.equal(validatePassword(` ${'a'.repeat(AUTH_PASSWORD_MIN_LENGTH - 1)}`), true);
+});
+
+test('credential emails share canonical user identity rules and report validation errors', () => {
+  assert.equal(createCanonicalAuthEmail('  User@Example.Test  '), 'user@example.test');
+  for (const invalid of ['', 'invalid', 'missing-at.example.test', `${'a'.repeat(320)}@example.test`]) {
+    assert.throws(() => createCanonicalAuthEmail(invalid), AuthValidationError);
+  }
+  assert.throws(() => assertValidPassword('too-short'), AuthValidationError);
+  assert.throws(() => assertValidPassword('x'.repeat(AUTH_PASSWORD_MAX_LENGTH + 1)), AuthValidationError);
 });
 
 test('password hashes are salted, versioned, and verify only the original secret', async () => {
