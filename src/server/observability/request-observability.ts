@@ -28,6 +28,8 @@ export interface StructuredRequestLogRecord {
   outcome: RequestLogOutcome;
   statusCode: number;
   durationMs: number;
+  /** Set only for a server-confirmed PostgreSQL authentication quota rejection. */
+  authRateLimited?: true;
   organizationId?: string;
   bookingReference?: string;
   provider?: string;
@@ -43,6 +45,7 @@ interface RequestObservationOptions {
 
 interface RequestCompletionOptions {
   failureOutcome?: RequestLogFailureOutcome;
+  authRateLimited?: true;
 }
 
 interface RequestObservationDependencies {
@@ -89,6 +92,7 @@ export function buildStructuredRequestLogRecord(input: {
   documentType?: RequestLogDocumentType;
   scope?: RequestObservationScope;
   failureOutcome?: RequestLogFailureOutcome;
+  authRateLimited?: true;
   now?: () => Date;
 }): StructuredRequestLogRecord {
   const classification = classifyStatus(input.statusCode, input.failureOutcome);
@@ -103,6 +107,13 @@ export function buildStructuredRequestLogRecord(input: {
     durationMs: Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : 0,
     documentType: input.documentType,
   };
+
+  // Only server-confirmed auth quota denials may emit this bounded, identity-free signal.
+  if (input.authRateLimited === true &&
+      (input.operation === 'auth.sign-in' || input.operation === 'auth.sign-up') &&
+      classification.outcome === 'rejected') {
+    record.authRateLimited = true;
+  }
 
   const organizationId = safeLogIdentifier(input.scope?.organizationId);
   const bookingReference = safeLogIdentifier(input.scope?.bookingReference);
@@ -157,6 +168,7 @@ export function createRequestObservation(
         documentType: options.documentType,
         scope,
         failureOutcome: completion?.failureOutcome,
+        authRateLimited: completion?.authRateLimited,
         now: dependencies.now,
       });
       emitStructuredObservationSafely(sink, record);

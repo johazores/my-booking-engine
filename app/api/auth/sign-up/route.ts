@@ -25,10 +25,10 @@ function field(formData: FormData, name: string) {
 
 export async function POST(request: Request) {
   const observation = createRequestObservation(request, { operation: 'auth.sign-up' });
-  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
+  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome, authRateLimited?: true) => observation.finish(
     applyAuthResponseNoStore(response),
     undefined,
-    failureOutcome ? { failureOutcome } : undefined,
+    failureOutcome ? { failureOutcome, ...(authRateLimited ? { authRateLimited } : {}) } : undefined,
   );
 
   if (!isSameOriginAuthRequest(request)) {
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     if (!attempt.allowed) {
       const response = redirectToLocalPath(`/sign-up?error=rate-limited&retry=${attempt.retryAfterSeconds}`);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
-      return finish(response, 'rejected');
+      return finish(response, 'rejected', true);
     }
 
     const result = await registerWithPassword(registration, request.signal);

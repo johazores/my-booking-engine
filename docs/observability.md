@@ -23,6 +23,8 @@ Staff legal-document issuance actions may append a validated response request ID
 
 HTTP 2xx/3xx outcomes log at `info`, 4xx rejections at `warn`, and 5xx failures at `error`. Optional identifiers fail closed when they do not match the bounded log-safe format.
 
+For authentication only, a server-confirmed PostgreSQL sign-in or sign-up quota rejection also emits `authRateLimited: true` on the existing completion record. This optional boolean is accepted only for `auth.sign-in` or `auth.sign-up` when the final logical outcome is `rejected`. It does not include email, identity digest, client IP, retry duration, form content, or a quota subject. It enables privacy-safe counts of real database quota denials, not source-based throttling, and HTTP 303 redirects must not be interpreted as edge HTTP 429 events.
+
 Redirect form handlers may provide the shared logger a typed `rejected` or `failed` logical outcome after the server has classified the operation. This is only for HTTP 303 workflows whose business operation failed. An HTTP 5xx can never be downgraded, and callers cannot override an HTTP failure to `succeeded`.
 
 ## Reviewed operations

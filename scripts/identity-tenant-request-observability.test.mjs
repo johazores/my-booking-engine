@@ -41,7 +41,9 @@ test('authentication mutations emit correlated completion logs without identity 
 test('sign-in and sign-up classify redirect-based failures explicitly', () => {
   for (const path of ['app/api/auth/sign-in/route.ts', 'app/api/auth/sign-up/route.ts']) {
     const routeSource = source(path);
-    assert.match(routeSource, /303\), 'rejected'\)/);
+    assert.match(routeSource, /return finish\(response, 'rejected', true\);/);
+    assert.match(routeSource, /response\.headers\.set\('Retry-After', String\(attempt\.retryAfterSeconds\)\)/);
+    assert.match(routeSource, /authRateLimited \? \{ authRateLimited \} : \{\}/);
     assert.match(routeSource, /code === 'server' \? 'failed' : 'rejected'/);
   }
 });

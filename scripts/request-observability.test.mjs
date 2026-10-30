@@ -100,6 +100,48 @@ test('status classification is stable and unsafe optional context fails closed',
   assert.equal(failure.durationMs, 0);
 });
 
+test('authentication quota observations expose only a verified, identity-free rejection signal', () => {
+  const base = {
+    requestId: 'sf-request.2026-10-31:auth',
+    operation: 'auth.sign-in',
+    statusCode: 303,
+    durationMs: 5,
+    failureOutcome: 'rejected',
+    authRateLimited: true,
+  };
+  const accepted = buildStructuredRequestLogRecord(base);
+  assert.equal(accepted.authRateLimited, true);
+  assert.equal(accepted.outcome, 'rejected');
+  assert.equal(accepted.level, 'warn');
+  assert.equal('email' in accepted, false);
+  assert.equal('subjectHash' in accepted, false);
+  assert.equal('retryAfterSeconds' in accepted, false);
+
+  for (const input of [
+    { ...base, operation: 'organization.create' },
+    { ...base, failureOutcome: 'failed' },
+    { ...base, authRateLimited: 'true' },
+  ]) {
+    assert.equal(buildStructuredRequestLogRecord(input).authRateLimited, undefined);
+  }
+
+  const request = new Request('https://sf.example.test/api/auth/sign-in?email=private@example.test', {
+    method: 'POST',
+    headers: { authorization: 'Bearer private-token' },
+  });
+  const observer = createRequestObservation(request, { operation: 'auth.sign-up' });
+  const captured = captureConsole('warn', () => observer.finish(
+    new Response(null, { status: 303, headers: { Location: '/sign-up?error=rate-limited&retry=60' } }),
+    undefined,
+    { failureOutcome: 'rejected', authRateLimited: true },
+  ));
+  assert.equal(captured.lines.length, 1);
+  const record = JSON.parse(captured.lines[0]);
+  assert.equal(record.authRateLimited, true);
+  assert.equal(record.outcome, 'rejected');
+  assert.doesNotMatch(captured.lines[0], /private@example\.test|private-token|retry=60/);
+});
+
 test('client error references expose only a validated response correlation id', () => {
   const response = new Response(null, { headers: { [REQUEST_ID_HEADER]: 'sf-request.2026-09-05:0004' } });
   assert.equal(appendRequestReference('Issuance failed.', response), 'Issuance failed. Request reference: sf-request.2026-09-05:0004');
