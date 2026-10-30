@@ -100,8 +100,10 @@ test('aborted middle waiter is removed without displacing FIFO neighbors', async
 test('aborting a running derivation waits for completion then rejects and releases the slot', async () => {
   const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 1, queueTimeoutMs: 1000 });
   const blocker = deferred();
+  const started = deferred();
   const controller = new AbortController();
-  const first = run(async () => { await blocker.promise; return 'secret'; }, controller.signal);
+  const first = run(async () => { started.release(); await blocker.promise; return 'secret'; }, controller.signal);
+  await started.promise;
   let nextRan = false;
   const next = run(async () => { nextRan = true; return 'next'; });
   controller.abort();
