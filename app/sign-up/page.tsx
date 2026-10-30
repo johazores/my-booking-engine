@@ -6,7 +6,7 @@ import { readAuthSession } from '@/server/auth/auth-http.ts';
 import { getAuthRateLimitMessage } from '@/server/auth/auth-http-policy.ts';
 
 const messages: Record<string, string> = {
-  validation: 'Check your details. Passwords must contain 12 to 128 characters.',
+  validation: 'Check your email, name, and password. Passwords must be 12 to 128 characters and names at most 160 characters.',
   server: 'Your account could not be created. Please try again.',
 };
 
@@ -38,7 +38,8 @@ export default async function SignUpPage({
         <form className="sf-form" action="/api/auth/sign-up" method="post">
           <label className="sf-field">
             <span>Name <small>(optional)</small></span>
-            <input name="displayName" type="text" autoComplete="name" maxLength={320} />
+            <input name="displayName" type="text" autoComplete="name" maxLength={320} aria-describedby="display-name-help" />
+            <small id="display-name-help">Up to 160 characters.</small>
           </label>
           <label className="sf-field">
             <span>Email</span>

@@ -19,7 +19,9 @@ test('registration names follow PostgreSQL code-point length rather than UTF-16 
   const page = source('app/sign-up/page.tsx');
   const domain = source('src/server/auth/auth-domain.ts');
   const tests = source('src/server/auth/auth-domain.test.ts');
-  assert.match(page, /name="displayName"[^>]*maxLength=\{320\}/);
+  assert.match(page, /name="displayName"[^>]*maxLength=\{320\}[^>]*aria-describedby="display-name-help"/);
+  assert.match(page, /id="display-name-help">Up to 160 characters/);
+  assert.match(page, /validation: .*names at most 160 characters/);
   assert.match(domain, /\[\.\.\.displayName\]\.length > 160/);
   assert.match(tests, /'😀'\.repeat\(160\)/u);
   assert.match(tests, /'😀'\.repeat\(161\)/u);
