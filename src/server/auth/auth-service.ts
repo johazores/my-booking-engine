@@ -1,7 +1,6 @@
 import {
-  AuthValidationError,
-  assertValidPassword,
-  createCanonicalAuthEmail,
+  validateSignInInput,
+  validateSignUpInput,
   createSessionExpiry,
   createSessionToken,
   hashPassword,
@@ -16,25 +15,8 @@ import {
   revokeAuthSession,
 } from './auth-repository.ts';
 
-const DISPLAY_NAME_MAX_LENGTH = 160;
-
 export class AuthConflictError extends Error {}
 export class InvalidCredentialsError extends Error {}
-
-function normalizeDisplayName(value?: string) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const displayName = value.trim();
-  if (!displayName || displayName.length > DISPLAY_NAME_MAX_LENGTH) {
-    throw new AuthValidationError(
-      `Display name must be between 1 and ${DISPLAY_NAME_MAX_LENGTH} characters when provided.`,
-    );
-  }
-
-  return displayName;
-}
 
 function isUniqueConstraintError(error: unknown) {
   return (
@@ -50,9 +32,8 @@ export async function registerWithPassword(input: {
   password: string;
   displayName?: string;
 }) {
-  const email = createCanonicalAuthEmail(input.email);
-  const displayName = normalizeDisplayName(input.displayName);
-  const passwordHash = await hashPassword(input.password);
+  const { email, password, displayName } = validateSignUpInput(input);
+  const passwordHash = await hashPassword(password);
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
   const expiresAt = createSessionExpiry();
@@ -80,9 +61,7 @@ export async function signInWithPassword(input: {
   email: string;
   password: string;
 }) {
-  const email = createCanonicalAuthEmail(input.email);
-  // Enforce the registration password bounds before any credential lookup.
-  assertValidPassword(input.password);
+  const { email, password } = validateSignInInput(input);
   const credential = await findPasswordCredentialByEmail(email);
 
   if (!credential) {
@@ -90,7 +69,7 @@ export async function signInWithPassword(input: {
     throw new InvalidCredentialsError('Invalid email or password.');
   }
 
-  const passwordMatches = await verifyPassword(input.password, credential.passwordHash);
+  const passwordMatches = await verifyPassword(password, credential.passwordHash);
   if (!passwordMatches) {
     throw new InvalidCredentialsError('Invalid email or password.');
   }

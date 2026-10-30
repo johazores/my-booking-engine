@@ -40,6 +40,29 @@ export function assertValidPassword(password: string) {
   }
 }
 
+/** Validate all cheap credential input before reserving a shared authentication budget. */
+export function validateSignInInput(input: { email: string; password: string }) {
+  const email = createCanonicalAuthEmail(input.email);
+  assertValidPassword(input.password);
+  return { email, password: input.password };
+}
+
+export function validateSignUpInput(input: {
+  email: string;
+  password: string;
+  displayName?: string;
+}) {
+  const { email, password } = validateSignInInput(input);
+  let displayName: string | undefined;
+  if (input.displayName !== undefined) {
+    displayName = input.displayName.trim();
+    if (!displayName || displayName.length > 160) {
+      throw new AuthValidationError('Display name must be between 1 and 160 characters when provided.');
+    }
+  }
+  return { email, password, displayName };
+}
+
 async function derivePasswordKey(password: string, salt: Buffer) {
   return (await scrypt(password, salt, SCRYPT_KEY_LENGTH, {
     N: SCRYPT_N,

@@ -12,6 +12,8 @@ import {
   hashPassword,
   hashSessionToken,
   validatePassword,
+  validateSignInInput,
+  validateSignUpInput,
   verifyPassword,
 } from './auth-domain.ts';
 
@@ -57,4 +59,38 @@ test('session tokens have high entropy and only their digest needs persistence',
 test('session expiry is a fixed absolute window from creation', () => {
   const now = new Date('2026-08-30T12:00:00.000Z');
   assert.equal(createSessionExpiry(now).toISOString(), '2026-09-13T12:00:00.000Z');
+});
+
+test('sign-in pre-admission validation canonicalizes email without altering password', () => {
+  const password = ` ${'x'.repeat(11)}`;
+  assert.deepEqual(
+    validateSignInInput({ email: ' User@Example.Test ', password }),
+    { email: 'user@example.test', password },
+  );
+  for (const input of [
+    { email: 'invalid', password: 'x'.repeat(12) },
+    { email: 'user@example.test', password: 'short' },
+    { email: 'user@example.test', password: 'x'.repeat(129) },
+  ]) {
+    assert.throws(() => validateSignInInput(input), AuthValidationError);
+  }
+});
+
+test('sign-up pre-admission validation rejects invalid names and passwords', () => {
+  const password = 'x'.repeat(12);
+  assert.deepEqual(
+    validateSignUpInput({ email: ' USER@example.test ', password, displayName: '  User  ' }),
+    { email: 'user@example.test', password, displayName: 'User' },
+  );
+  assert.equal(validateSignUpInput({ email: 'user@example.test', password }).displayName, undefined);
+  for (const displayName of ['', '   ', 'x'.repeat(161)]) {
+    assert.throws(
+      () => validateSignUpInput({ email: 'user@example.test', password, displayName }),
+      AuthValidationError,
+    );
+  }
+  assert.throws(
+    () => validateSignUpInput({ email: 'user@example.test', password: 'short' }),
+    AuthValidationError,
+  );
 });

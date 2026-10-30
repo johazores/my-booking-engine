@@ -1,6 +1,6 @@
 # Authentication abuse control
 
-The sign-in and sign-up browser POST handlers first reject malformed email identities, then reserve attempts before password hashing, account lookup, or registration. The service independently validates canonical email identities and the sign-in password length. Malformed emails do not consume the shared database quota; syntactically valid rotating identities can still exhaust it, so trusted-source edge protection remains necessary. Reservations use PostgreSQL conflict updates and the database clock, not process-local memory, so all replicas share limits.
+The sign-in and sign-up browser POST handlers validate canonical email identities and password length before reserving attempts. Sign-up also validates the optional display name before admission. The same shared validators run again inside the authentication services so alternate callers cannot bypass the policy. Invalid credential input does not consume the per-identity or deployment-wide quota; syntactically valid rotating identities can still exhaust it, so trusted-source edge protection remains necessary. Reservations use PostgreSQL conflict updates and the database clock, not process-local memory, so all replicas share limits.
 
 Each route has a separate 15-minute fixed-window budget:
 

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
-import { AuthValidationError, createCanonicalAuthEmail } from '@/server/auth/auth-domain.ts';
+import { AuthValidationError, validateSignInInput } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_SESSION_COOKIE,
   applyAuthResponseNoStore,
@@ -46,19 +46,19 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Reject malformed identities before they consume shared deployment capacity.
-    const email = createCanonicalAuthEmail(field(formData, 'email'));
-    const attempt = await reserveAuthAttempt('sign-in', email);
+    // Malformed credentials must not spend per-identity or deployment-wide capacity.
+    const credentials = validateSignInInput({
+      email: field(formData, 'email'),
+      password: field(formData, 'password'),
+    });
+    const attempt = await reserveAuthAttempt('sign-in', credentials.email);
     if (!attempt.allowed) {
       const response = NextResponse.redirect(new URL('/sign-in?error=rate-limited', request.url), 303);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
       return finish(response, 'rejected');
     }
 
-    const result = await signInWithPassword({
-      email,
-      password: field(formData, 'password'),
-    });
+    const result = await signInWithPassword(credentials);
     const response = NextResponse.redirect(new URL('/account?status=signed-in', request.url), 303);
     response.cookies.set(AUTH_SESSION_COOKIE, result.token, {
       ...authSessionCookieOptions,
