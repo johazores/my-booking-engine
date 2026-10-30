@@ -28,6 +28,16 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
     domain.createAuthAttemptDigest('sign-in', 'identity', email, key));
 
   try {
+    const abandoned = new AbortController();
+    abandoned.abort();
+    await assert.rejects(
+      () => reserveAuthAttempt('sign-in', firstEmail, abandoned.signal),
+      { name: 'AuthRequestAbortedError' },
+    );
+    assert.equal(await db.authAttemptWindow.count({
+      where: { operation: 'sign-in', scope: 'identity', subjectHash: firstDigest },
+    }), 0);
+
     const attempts = await Promise.all(Array.from({ length: 14 },
       () => reserveAuthAttempt('sign-in', firstEmail)));
     assert.equal(attempts.filter((result) => result.allowed).length, 10);

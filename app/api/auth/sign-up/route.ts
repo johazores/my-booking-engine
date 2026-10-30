@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       password: field(formData, 'password'),
       displayName: field(formData, 'displayName') || undefined,
     });
-    const attempt = await reserveAuthAttempt('sign-up', registration.email);
+    const attempt = await reserveAuthAttempt('sign-up', registration.email, request.signal);
     if (!attempt.allowed) {
       const response = redirectToLocalPath(`/sign-up?error=rate-limited&retry=${attempt.retryAfterSeconds}`);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));

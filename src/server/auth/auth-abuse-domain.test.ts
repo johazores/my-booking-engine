@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import test from 'node:test';
+import { AuthRequestAbortedError } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
   admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
@@ -67,4 +68,46 @@ test('quota storage failures fail closed without continuing to the next scope', 
     throw new Error('database unavailable');
   }), /database unavailable/);
   assert.deepEqual(consumed, ['identity']);
+});
+
+test('pre-aborted credential requests do not consume either quota', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const consumed: string[] = [];
+  await assert.rejects(
+    () => admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-in'], async (scope) => {
+      consumed.push(scope);
+      return { allowed: true };
+    }, controller.signal),
+    AuthRequestAbortedError,
+  );
+  assert.deepEqual(consumed, []);
+});
+
+test('abort after identity admission prevents the independent global quota write', async () => {
+  const controller = new AbortController();
+  const consumed: string[] = [];
+  await assert.rejects(
+    () => admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-up'], async (scope) => {
+      consumed.push(scope);
+      controller.abort();
+      return { allowed: true };
+    }, controller.signal),
+    AuthRequestAbortedError,
+  );
+  assert.deepEqual(consumed, ['identity']);
+});
+
+test('abort during the global quota write cannot refund admission but discards its result', async () => {
+  const controller = new AbortController();
+  const consumed: string[] = [];
+  await assert.rejects(
+    () => admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-in'], async (scope) => {
+      consumed.push(scope);
+      if (scope === 'global') controller.abort();
+      return { allowed: true };
+    }, controller.signal),
+    AuthRequestAbortedError,
+  );
+  assert.deepEqual(consumed, ['identity', 'global']);
 });

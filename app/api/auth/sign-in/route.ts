@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       email: field(formData, 'email'),
       password: field(formData, 'password'),
     });
-    const attempt = await reserveAuthAttempt('sign-in', credentials.email);
+    const attempt = await reserveAuthAttempt('sign-in', credentials.email, request.signal);
     if (!attempt.allowed) {
       const response = redirectToLocalPath(`/sign-in?error=rate-limited&retry=${attempt.retryAfterSeconds}`);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));

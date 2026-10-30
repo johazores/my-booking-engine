@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { db } from '../database.ts';
+import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
   admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
@@ -59,7 +60,9 @@ async function pruneExpiredWindowsBestEffort() {
   }
 }
 
-export async function reserveAuthAttempt(operation: AuthAttemptOperation, email: string) {
+export async function reserveAuthAttempt(operation: AuthAttemptOperation, email: string, signal?: AbortSignal) {
+  // Do not consume a database quota for a request already abandoned.
+  assertAuthRequestNotAborted(signal);
   // Fail closed on a missing deployment secret, before any credential work.
   const secret = decodeAuthAbuseSecret(process.env.SF_AUTH_ABUSE_SECRET);
   const limits = AUTH_ATTEMPT_LIMITS[operation];
@@ -67,7 +70,9 @@ export async function reserveAuthAttempt(operation: AuthAttemptOperation, email:
   const identityDigest = createAuthAttemptDigest(operation, 'identity', email, secret);
 
   const decision = await admitAuthAttemptWithBudgets(limits, (scope, limit) =>
-    consumeWindow(operation, scope, scope === 'identity' ? identityDigest : globalDigest, limit));
+    consumeWindow(operation, scope, scope === 'identity' ? identityDigest : globalDigest, limit), signal);
+  // Cleanup is optional; do not start it for a request abandoned after admission.
+  assertAuthRequestNotAborted(signal);
   await pruneExpiredWindowsBestEffort();
   return decision;
 }

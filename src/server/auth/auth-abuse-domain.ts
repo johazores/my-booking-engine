@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { normalizeUserEmail } from '../users/user-domain.ts';
+import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 
 export type AuthAttemptOperation = 'sign-in' | 'sign-up';
 export type AuthAttemptScope = 'identity' | 'global';
@@ -37,9 +38,15 @@ export function createAuthAttemptDigest(
 export async function admitAuthAttemptWithBudgets(
   limits: Readonly<{ identity: number; global: number }>,
   consume: (scope: AuthAttemptScope, limit: number) => Promise<AuthAttemptDecision>,
+  signal?: AbortSignal,
 ): Promise<AuthAttemptDecision> {
-  // Repeatedly rejected identities must not consume the shared deployment budget.
+  // Stop abandoned requests before each independent database quota write.
+  // An already-started write cannot be cancelled or refunded.
+  assertAuthRequestNotAborted(signal);
   const identity = await consume('identity', limits.identity);
+  assertAuthRequestNotAborted(signal);
   if (!identity.allowed) return identity;
-  return consume('global', limits.global);
+  const global = await consume('global', limits.global);
+  assertAuthRequestNotAborted(signal);
+  return global;
 }
