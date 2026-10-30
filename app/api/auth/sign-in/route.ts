@@ -5,6 +5,8 @@ import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthValidationError, createCanonicalAuthEmail } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_SESSION_COOKIE,
+  applyAuthResponseNoStore,
+  clearSelectedOrganizationCookie,
   authSessionCookieOptions,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
@@ -23,7 +25,7 @@ function field(formData: FormData, name: string) {
 export async function POST(request: Request) {
   const observation = createRequestObservation(request, { operation: 'auth.sign-in' });
   const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome) => observation.finish(
-    response,
+    applyAuthResponseNoStore(response),
     undefined,
     failureOutcome ? { failureOutcome } : undefined,
   );
@@ -62,6 +64,7 @@ export async function POST(request: Request) {
       ...authSessionCookieOptions,
       expires: result.expiresAt,
     });
+    clearSelectedOrganizationCookie(response);
     return finish(response);
   } catch (error) {
     const code =

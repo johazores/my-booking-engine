@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyAuthResponseNoStore,
   getAuthRequiredRedirect,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
@@ -46,6 +47,17 @@ test('credential endpoints accept browser form media types only', () => {
   assert.equal(isSupportedAuthFormRequest(multipart), true);
   assert.equal(isSupportedAuthFormRequest(json), false);
   assert.equal(isSupportedAuthFormRequest(missing), false);
+});
+
+test('authentication responses are no-store for redirects and errors', () => {
+  for (const response of [
+    new Response(null, { status: 303, headers: { Location: '/account' } }),
+    new Response('Forbidden', { status: 403 }),
+    new Response('Unavailable', { status: 500, headers: { 'Cache-Control': 'public, max-age=600' } }),
+  ]) {
+    assert.equal(applyAuthResponseNoStore(response), response);
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  }
 });
 
 test('protected auth guard distinguishes missing and invalid sessions', () => {

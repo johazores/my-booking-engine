@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import {
   AUTH_SESSION_COOKIE,
+  applyAuthResponseNoStore,
+  clearSelectedOrganizationCookie,
   authSessionCookieOptions,
   isSameOriginAuthRequest,
 } from '@/server/auth/auth-http.ts';
@@ -10,7 +12,7 @@ import { createRequestObservation } from '@/server/observability/request-observa
 
 export async function POST(request: NextRequest) {
   const observation = createRequestObservation(request, { operation: 'auth.sign-out' });
-  const finish = (response: Response) => observation.finish(response);
+  const finish = (response: Response) => observation.finish(applyAuthResponseNoStore(response));
 
   if (!isSameOriginAuthRequest(request)) {
     return finish(new Response('Forbidden', { status: 403 }));
@@ -31,5 +33,6 @@ export async function POST(request: NextRequest) {
     expires: new Date(0),
     maxAge: 0,
   });
+  clearSelectedOrganizationCookie(response);
   return finish(response);
 }

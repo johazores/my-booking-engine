@@ -27,6 +27,12 @@ export function isSupportedAuthFormRequest(request: Request) {
   return mediaType ? AUTH_FORM_MEDIA_TYPES.has(mediaType) : false;
 }
 
+/** Prevent credential and sign-out responses from being stored by caches. */
+export function applyAuthResponseNoStore<T extends Response>(response: T): T {
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+}
+
 export function getAuthRequiredRedirect(state: AuthSessionStateLike) {
   if (state.session) {
     return null;
