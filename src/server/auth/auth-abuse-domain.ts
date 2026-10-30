@@ -50,3 +50,17 @@ export async function admitAuthAttemptWithBudgets(
   assertAuthRequestNotAborted(signal);
   return global;
 }
+
+/** Retention is optional and must never add work to rejected attempts or fail admission. */
+export async function runBestEffortAuthRetention(
+  admitted: boolean,
+  shouldPrune: () => boolean,
+  prune: () => Promise<unknown>,
+): Promise<void> {
+  if (!admitted) return;
+  try {
+    if (shouldPrune()) await prune();
+  } catch {
+    // Neither random sampling nor maintenance failures may override admission.
+  }
+}

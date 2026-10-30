@@ -3,7 +3,7 @@ import { db } from '../database.ts';
 import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, runBestEffortAuthRetention,
   type AuthAttemptOperation, type AuthAttemptScope,
 } from './auth-abuse-domain.ts';
 
@@ -68,15 +68,6 @@ export async function pruneExpiredAuthAttemptWindowsBatch() {
   `;
 }
 
-async function pruneExpiredWindowsBestEffort() {
-  if (randomBytes(1)[0] !== 0) return;
-  try {
-    await pruneExpiredAuthAttemptWindowsBatch();
-  } catch {
-    // Retention cleanup must not replace an already enforced attempt decision.
-  }
-}
-
 export async function reserveAuthAttempt(operation: AuthAttemptOperation, email: string, signal?: AbortSignal) {
   // Do not consume a database quota for a request already abandoned.
   assertAuthRequestNotAborted(signal);
@@ -88,8 +79,13 @@ export async function reserveAuthAttempt(operation: AuthAttemptOperation, email:
 
   const decision = await admitAuthAttemptWithBudgets(limits, (scope, limit) =>
     consumeWindow(operation, scope, scope === 'identity' ? identityDigest : globalDigest, limit), signal);
-  // Cleanup is optional; do not start it for a request abandoned after admission.
+  // Rejected attempts never sample or trigger additional database cleanup.
+  // Both sampling and cleanup failures are non-authoritative after admission.
   assertAuthRequestNotAborted(signal);
-  await pruneExpiredWindowsBestEffort();
+  await runBestEffortAuthRetention(
+    decision.allowed,
+    () => randomBytes(1)[0] === 0,
+    pruneExpiredAuthAttemptWindowsBatch,
+  );
   return decision;
 }

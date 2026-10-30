@@ -20,7 +20,7 @@ test('database quota admission checks abort state and forwards it between scopes
   assert.match(repository, /reserveAuthAttempt\([^)]*signal\?: AbortSignal\)/);
   assert.match(repository, /assertAuthRequestNotAborted\(signal\)/);
   assert.match(repository, /consumeWindow\([^;]*\), signal\)/);
-  assert.match(repository, /assertAuthRequestNotAborted\(signal\);\s*await pruneExpiredWindowsBestEffort\(\)/);
+  assert.match(repository, /assertAuthRequestNotAborted\(signal\);\s*await runBestEffortAuthRetention\(\s*decision\.allowed,/);
   assert.match(domain, /assertAuthRequestNotAborted\(signal\);\s*const identity/);
   assert.match(domain, /const identity = await consume\('identity', limits\.identity\);\s*assertAuthRequestNotAborted\(signal\)/);
   assert.match(domain, /const global = await consume\('global', limits\.global\);\s*assertAuthRequestNotAborted\(signal\)/);

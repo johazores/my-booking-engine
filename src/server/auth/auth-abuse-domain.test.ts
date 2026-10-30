@@ -4,7 +4,7 @@ import test from 'node:test';
 import { AuthRequestAbortedError } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, runBestEffortAuthRetention,
 } from './auth-abuse-domain.ts';
 
 test('auth attempt secret requires canonical 32-byte base64url', () => {
@@ -110,4 +110,21 @@ test('abort during the global quota write cannot refund admission but discards i
     AuthRequestAbortedError,
   );
   assert.deepEqual(consumed, ['identity', 'global']);
+});
+
+
+test('optional auth retention never runs on quota denials or unsampled requests', async () => {
+  const calls: string[] = [];
+  await runBestEffortAuthRetention(false, () => { calls.push('sample'); return true; }, async () => { calls.push('prune'); });
+  await runBestEffortAuthRetention(true, () => { calls.push('sample'); return false; }, async () => { calls.push('prune'); });
+  assert.deepEqual(calls, ['sample']);
+});
+
+test('optional auth retention runs once when sampled and cannot fail admission', async () => {
+  let prunes = 0;
+  await runBestEffortAuthRetention(true, () => true, async () => { prunes += 1; });
+  assert.equal(prunes, 1);
+  await assert.doesNotReject(() => runBestEffortAuthRetention(true, () => { throw new Error('entropy unavailable'); }, async () => { prunes += 1; }));
+  await assert.doesNotReject(() => runBestEffortAuthRetention(true, () => true, async () => { throw new Error('retention unavailable'); }));
+  assert.equal(prunes, 1);
 });
