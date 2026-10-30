@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession, redirectToLocalPath } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import { MembershipRoleConflictError, MembershipRoleValidationError, updateMembershipRole } from '@/server/memberships/membership-role-service.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
@@ -33,7 +32,7 @@ export async function POST(
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try {
@@ -41,14 +40,14 @@ export async function POST(
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/account?roleError=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/account?roleError=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   let formData: FormData;
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL('/account?roleError=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/account?roleError=validation'), 'rejected');
   }
 
   try {
@@ -59,7 +58,7 @@ export async function POST(
       membershipId,
       role: field(formData, 'role'),
     });
-    return finish(NextResponse.redirect(new URL('/account?status=role-updated', request.url), 303));
+    return finish(redirectToLocalPath('/account?status=role-updated'));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -69,7 +68,7 @@ export async function POST(
           ? 'validation'
           : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/account?roleError=${code}`, request.url), 303),
+      redirectToLocalPath(`/account?roleError=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { applyAuthResponseNoStore, isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { applyAuthResponseNoStore, isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession, redirectToLocalPath } from '@/server/auth/auth-http.ts';
 import { createRequestObservation, type RequestLogFailureOutcome } from '@/server/observability/request-observability.ts';
 import { findOrganizationForUser } from '@/server/organizations/organization-repository.ts';
 import { ACTIVE_ORGANIZATION_COOKIE, activeOrganizationCookieOptions } from '@/server/tenancy/tenant-context.ts';
@@ -24,18 +23,18 @@ export async function POST(request: Request) {
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let formData: FormData;
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL('/account?organizationError=selection', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/account?organizationError=selection'), 'rejected');
   }
 
   const requestedOrganizationId = formData.get('organizationId');
   if (typeof requestedOrganizationId !== 'string') {
-    return finish(NextResponse.redirect(new URL('/account?organizationError=selection', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/account?organizationError=selection'), 'rejected');
   }
 
   try {
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
     if (!organization) return finish(new Response('Forbidden', { status: 403 }));
     organizationId = organization.id;
 
-    const response = NextResponse.redirect(new URL('/account?status=organization-selected', request.url), 303);
+    const response = redirectToLocalPath('/account?status=organization-selected');
     response.cookies.set(ACTIVE_ORGANIZATION_COOKIE, organization.id, activeOrganizationCookieOptions);
     return finish(response);
   } catch {

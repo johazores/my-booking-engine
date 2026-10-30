@@ -48,6 +48,15 @@ export function getAuthRequiredRedirect(state: AuthSessionStateLike) {
     : '/sign-in?error=required';
 }
 
+/** Browser mutation redirects must not inherit an untrusted request Host. */
+export function getLocalPostRedirectLocation(path: string) {
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//') ||
+      /[\\\u0000-\u001f\u007f]/.test(path)) {
+    throw new TypeError('Browser mutation redirects require a local absolute path.');
+  }
+  return path;
+}
+
 /** Browser redirects lose Retry-After headers; this value is informational only. */
 export function getAuthRateLimitMessage(retryAfter: unknown) {
   const generic = 'Too many attempts. Please wait before trying again.';

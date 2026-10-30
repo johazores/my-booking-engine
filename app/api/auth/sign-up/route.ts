@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
@@ -11,6 +10,7 @@ import {
   authSessionCookieOptions,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
+  redirectToLocalPath,
 } from '@/server/auth/auth-http.ts';
 import {
   AuthConflictError,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   try {
     formData = await readBoundedFormDataOrThrow(request, AUTH_FORM_MAX_BYTES);
   } catch {
-    return finish(NextResponse.redirect(new URL('/sign-up?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/sign-up?error=validation'), 'rejected');
   }
 
   try {
@@ -55,16 +55,13 @@ export async function POST(request: Request) {
     });
     const attempt = await reserveAuthAttempt('sign-up', registration.email);
     if (!attempt.allowed) {
-      const redirectUrl = new URL('/sign-up', request.url);
-      redirectUrl.searchParams.set('error', 'rate-limited');
-      redirectUrl.searchParams.set('retry', String(attempt.retryAfterSeconds));
-      const response = NextResponse.redirect(redirectUrl, 303);
+      const response = redirectToLocalPath(`/sign-up?error=rate-limited&retry=${attempt.retryAfterSeconds}`);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
       return finish(response, 'rejected');
     }
 
     const result = await registerWithPassword(registration, request.signal);
-    const response = NextResponse.redirect(new URL('/account?status=created', request.url), 303);
+    const response = redirectToLocalPath('/account?status=created');
     response.cookies.set(AUTH_SESSION_COOKIE, result.token, {
       ...authSessionCookieOptions,
       expires: result.expiresAt,
@@ -79,7 +76,7 @@ export async function POST(request: Request) {
       ? 'rejected'
       : 'failed';
     return finish(
-      NextResponse.redirect(new URL(`/sign-up?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/sign-up?error=${code}`),
       outcome,
     );
   }

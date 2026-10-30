@@ -6,6 +6,7 @@ import {
   applyAuthResponseNoStore,
   getAuthRequiredRedirect,
   getAuthRateLimitMessage,
+  getLocalPostRedirectLocation,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
 } from './auth-http-policy.ts';
@@ -89,4 +90,16 @@ test('authentication rate-limit feedback shows bounded database wait without tru
   for (const invalid of [undefined, null, '', '0', '901', '-1', '1.5', '1e2', '01', ' 60 ', ['60'], 60]) {
     assert.equal(getAuthRateLimitMessage(invalid), 'Too many attempts. Please wait before trying again.');
   }
+});
+
+
+test('browser mutation redirects preserve local paths and reject external destinations', () => {
+  for (const path of ['/account', '/sign-in?error=required', '/sign-up?error=rate-limited&retry=900', '/branding?status=updated']) {
+    const response = new Response(null, { status: 303, headers: { Location: getLocalPostRedirectLocation(path) } });
+    assert.equal(response.headers.get('Location'), path);
+  }
+  for (const path of ['', '//attacker.example', 'https://attacker.example', '/\\attacker.example', '/\r\nX-Test: value', '/\u007fmalicious']) {
+    assert.throws(() => getLocalPostRedirectLocation(path), TypeError);
+  }
+  assert.throws(() => getLocalPostRedirectLocation(null as unknown as string), TypeError);
 });

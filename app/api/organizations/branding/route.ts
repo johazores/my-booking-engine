@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession, redirectToLocalPath } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
   BrandingConflictError,
@@ -35,7 +34,7 @@ export async function POST(request: Request) {
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try {
@@ -44,7 +43,7 @@ export async function POST(request: Request) {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
   if (!activeContext.organization) {
-    return finish(NextResponse.redirect(new URL('/branding?error=tenant', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/branding?error=tenant'), 'rejected');
   }
   organizationId = activeContext.organization.id;
 
@@ -52,7 +51,7 @@ export async function POST(request: Request) {
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL('/branding?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/branding?error=validation'), 'rejected');
   }
 
   try {
@@ -76,7 +75,7 @@ export async function POST(request: Request) {
         customDomain: field(formData, 'customDomain'),
       },
     });
-    return finish(NextResponse.redirect(new URL('/branding?status=updated', request.url), 303));
+    return finish(redirectToLocalPath('/branding?status=updated'));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -88,7 +87,7 @@ export async function POST(request: Request) {
             ? 'tenant'
             : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/branding?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/branding?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

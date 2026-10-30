@@ -1,7 +1,6 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
-import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession } from '@/server/auth/auth-http.ts';
+import { isSameOriginAuthRequest, isSupportedAuthFormRequest, readAuthSession, redirectToLocalPath } from '@/server/auth/auth-http.ts';
 import { OrganizationPermissionDeniedError } from '@/server/authorization/authorization-service.ts';
 import {
   MembershipStatusConflictError,
@@ -37,7 +36,7 @@ export async function POST(
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!session) return finish(NextResponse.redirect(new URL('/sign-in?error=required', request.url), 303), 'rejected');
+  if (!session) return finish(redirectToLocalPath('/sign-in?error=required'), 'rejected');
 
   let activeContext: Awaited<ReturnType<typeof readActiveOrganizationContext>>;
   try {
@@ -45,14 +44,14 @@ export async function POST(
   } catch {
     return finish(new Response('Internal Server Error', { status: 500 }));
   }
-  if (!activeContext.organization) return finish(NextResponse.redirect(new URL('/account?memberError=tenant', request.url), 303), 'rejected');
+  if (!activeContext.organization) return finish(redirectToLocalPath('/account?memberError=tenant'), 'rejected');
   organizationId = activeContext.organization.id;
 
   let formData: FormData;
   try {
     formData = await readBoundedFormDataOrThrow(request);
   } catch {
-    return finish(NextResponse.redirect(new URL('/account?memberError=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/account?memberError=validation'), 'rejected');
   }
 
   try {
@@ -63,7 +62,7 @@ export async function POST(
       membershipId,
       status: field(formData, 'status'),
     });
-    return finish(NextResponse.redirect(new URL('/account?status=membership-updated', request.url), 303));
+    return finish(redirectToLocalPath('/account?status=membership-updated'));
   } catch (error) {
     const code = error instanceof OrganizationPermissionDeniedError
       ? 'permission'
@@ -73,7 +72,7 @@ export async function POST(
           ? 'validation'
           : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/account?memberError=${code}`, request.url), 303),
+      redirectToLocalPath(`/account?memberError=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }

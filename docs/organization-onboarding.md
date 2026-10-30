@@ -14,6 +14,8 @@ Every read of active tenant context re-validates the cookie value through the te
 
 Organization creation automatically selects the newly created organization only after the atomic organization + membership transaction succeeds.
 
+Organization create/select, branding, settings, archive, and membership-management form responses redirect with path-only HTTP 303 locations. They do not derive redirect hosts from inbound request URLs, while authentication, active-tenant checks, capability checks, and server-side resource ownership remain unchanged.
+
 ## Organization settings
 
 Organization settings are editable only by a platform administrator or an active tenant member with `organization-settings:manage`. The browser never supplies trusted actor or tenant authority; the actor comes from the validated session and the tenant comes from the revalidated active organization context.

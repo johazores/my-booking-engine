@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 
 import {
   AUTH_SESSION_COOKIE,
@@ -6,6 +6,7 @@ import {
   clearSelectedOrganizationCookie,
   authSessionCookieOptions,
   isSameOriginAuthRequest,
+  redirectToLocalPath,
 } from '@/server/auth/auth-http.ts';
 import { signOutSession } from '@/server/auth/auth-service.ts';
 import { createRequestObservation } from '@/server/observability/request-observability.ts';
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
     return finish(new Response('Unable to sign out', { status: 500 }));
   }
 
-  const response = NextResponse.redirect(new URL('/sign-in?status=signed-out', request.url), 303);
+  const response = redirectToLocalPath('/sign-in?status=signed-out');
   response.cookies.set(AUTH_SESSION_COOKIE, '', {
     ...authSessionCookieOptions,
     expires: new Date(0),

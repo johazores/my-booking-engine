@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers';
-import type { NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { ACTIVE_ORGANIZATION_COOKIE, activeOrganizationCookieOptions } from '../tenancy/tenant-context.ts';
 
@@ -11,6 +11,16 @@ export {
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
 } from './auth-http-policy.ts';
+
+import { getLocalPostRedirectLocation } from './auth-http-policy.ts';
+
+/** Return a path-only 303 Location, never an absolute URL derived from request headers. */
+export function redirectToLocalPath(path: string): NextResponse {
+  return new NextResponse(null, {
+    status: 303,
+    headers: { Location: getLocalPostRedirectLocation(path) },
+  });
+}
 
 /** An organization selection belongs to the previous browser identity, not the new session. */
 export function clearSelectedOrganizationCookie(response: NextResponse) {

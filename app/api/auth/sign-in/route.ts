@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server';
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
@@ -11,6 +10,7 @@ import {
   authSessionCookieOptions,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
+  redirectToLocalPath,
 } from '@/server/auth/auth-http.ts';
 import {
   InvalidCredentialsError,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   try {
     formData = await readBoundedFormDataOrThrow(request, AUTH_FORM_MAX_BYTES);
   } catch {
-    return finish(NextResponse.redirect(new URL('/sign-in?error=validation', request.url), 303), 'rejected');
+    return finish(redirectToLocalPath('/sign-in?error=validation'), 'rejected');
   }
 
   try {
@@ -54,16 +54,13 @@ export async function POST(request: Request) {
     });
     const attempt = await reserveAuthAttempt('sign-in', credentials.email);
     if (!attempt.allowed) {
-      const redirectUrl = new URL('/sign-in', request.url);
-      redirectUrl.searchParams.set('error', 'rate-limited');
-      redirectUrl.searchParams.set('retry', String(attempt.retryAfterSeconds));
-      const response = NextResponse.redirect(redirectUrl, 303);
+      const response = redirectToLocalPath(`/sign-in?error=rate-limited&retry=${attempt.retryAfterSeconds}`);
       response.headers.set('Retry-After', String(attempt.retryAfterSeconds));
       return finish(response, 'rejected');
     }
 
     const result = await signInWithPassword(credentials, request.signal);
-    const response = NextResponse.redirect(new URL('/account?status=signed-in', request.url), 303);
+    const response = redirectToLocalPath('/account?status=signed-in');
     response.cookies.set(AUTH_SESSION_COOKIE, result.token, {
       ...authSessionCookieOptions,
       expires: result.expiresAt,
@@ -78,7 +75,7 @@ export async function POST(request: Request) {
           ? 'validation'
           : 'server';
     return finish(
-      NextResponse.redirect(new URL(`/sign-in?error=${code}`, request.url), 303),
+      redirectToLocalPath(`/sign-in?error=${code}`),
       code === 'server' ? 'failed' : 'rejected',
     );
   }
