@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { AUTH_SESSION_TTL_MS, hashSessionToken } from './auth-domain.ts';
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 const databaseUrl = process.env.DATABASE_URL;
@@ -21,6 +22,19 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
   const password = 'correct horse battery staple';
   let userId: string | undefined;
 
+  async function assertDatabaseClockSessionExpiry(token: string, expectedExpiry: Date) {
+    const session = await db.authSession.findUnique({
+      where: { tokenHash: hashSessionToken(token) },
+    });
+    assert.ok(session);
+    assert.equal(session.expiresAt.getTime(), expectedExpiry.getTime());
+    const rows = await db.$queryRaw<Array<{ now: Date }>>`SELECT statement_timestamp() AS "now"`;
+    assert.equal(rows.length, 1);
+    const remainingMs = expectedExpiry.getTime() - rows[0].now.getTime();
+    assert.ok(remainingMs > AUTH_SESSION_TTL_MS - 60_000);
+    assert.ok(remainingMs <= AUTH_SESSION_TTL_MS);
+  }
+
   try {
     await assert.rejects(
       () => authService.registerWithPassword({ email: 'invalid', password }),
@@ -40,6 +54,7 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
       displayName: 'Auth Test User',
     });
     userId = registration.user.id;
+    await assertDatabaseClockSessionExpiry(registration.token, registration.expiresAt);
 
     const credential = await db.passwordCredential.findUnique({
       where: { userId },
@@ -66,6 +81,7 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
 
     const signedIn = await authService.signInWithPassword({ email, password });
     assert.equal(signedIn.user.id, userId);
+    await assertDatabaseClockSessionExpiry(signedIn.token, signedIn.expiresAt);
     assert.equal(
       (await authService.resolveAuthSession(signedIn.token))?.user.id,
       userId,
@@ -73,8 +89,23 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
 
     await authService.signOutSession(signedIn.token);
     assert.equal(await authService.resolveAuthSession(signedIn.token), null);
+    const revoked = await db.authSession.findUnique({
+      where: { tokenHash: hashSessionToken(signedIn.token) },
+    });
+    assert.ok(revoked?.revokedAt);
+    const clockRows = await db.$queryRaw<Array<{ now: Date }>>`SELECT statement_timestamp() AS "now"`;
+    assert.equal(clockRows.length, 1);
+    assert.ok(revoked.revokedAt.getTime() <= clockRows[0].now.getTime());
+    assert.ok(revoked.revokedAt.getTime() >= clockRows[0].now.getTime() - 60_000);
+    // Repeated sign-out must not rewrite the original revocation evidence.
+    await authService.signOutSession(signedIn.token);
+    const revokedAgain = await db.authSession.findUnique({
+      where: { tokenHash: hashSessionToken(signedIn.token) },
+    });
+    assert.equal(revokedAgain?.revokedAt?.getTime(), revoked.revokedAt.getTime());
 
     const signedInAgain = await authService.signInWithPassword({ email, password });
+    await assertDatabaseClockSessionExpiry(signedInAgain.token, signedInAgain.expiresAt);
     await db.user.update({
       where: { id: userId },
       data: { status: 'SUSPENDED' },

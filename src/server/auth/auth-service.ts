@@ -1,7 +1,6 @@
 import {
   validateSignInInput,
   validateSignUpInput,
-  createSessionExpiry,
   createSessionToken,
   hashPassword,
   hashSessionToken,
@@ -37,15 +36,12 @@ export async function registerWithPassword(input: {
   const passwordHash = await hashPassword(password);
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
-  const expiresAt = createSessionExpiry();
-
   try {
-    const user = await createRegisteredUserWithSession({
+    const { user, expiresAt } = await createRegisteredUserWithSession({
       email,
       displayName,
       passwordHash,
       sessionTokenHash: tokenHash,
-      sessionExpiresAt: expiresAt,
     });
 
     return { user, token, expiresAt };
@@ -77,11 +73,9 @@ export async function signInWithPassword(input: {
 
   const token = createSessionToken();
   const tokenHash = hashSessionToken(token);
-  const expiresAt = createSessionExpiry();
-  await createAuthSession({
+  const expiresAt = await createAuthSession({
     userId: credential.userId,
     tokenHash,
-    expiresAt,
   });
 
   return {

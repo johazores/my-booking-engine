@@ -30,7 +30,7 @@ User email is trimmed, lowercase, syntactically validated, and bounded to the sc
 
 Password credentials are stored separately from user identity. Passwords use versioned salted scrypt hashes; plaintext passwords are never persisted.
 
-Authentication sessions store only the SHA-256 digest of the opaque browser token plus expiry/revocation state and user identity. Browser tokens are delivered through secure HttpOnly cookies.
+Authentication sessions store only the SHA-256 digest of the opaque browser token plus expiry/revocation state and user identity. Browser tokens are delivered through secure HttpOnly cookies. Expiry creation is based on the database clock, the cookie receives the same persisted expiry, active-session reads compare against PostgreSQL `statement_timestamp()` in the same query as user-status validation, and revocation uses PostgreSQL timestamps. The atomic user/credential/session registration write remains intact.
 
 ### OrganizationMembership
 

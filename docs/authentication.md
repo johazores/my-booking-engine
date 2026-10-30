@@ -16,7 +16,7 @@ SF uses first-party email/password authentication with opaque database-backed se
 
 ## Sessions
 
-Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user. Session resolution and revocation first reject malformed, noncanonical, or oversized bearer cookie values without querying PostgreSQL. Only canonical unpadded base64url encodings of 32-byte tokens are accepted.
+Registration and sign-in create a cryptographically random 32-byte opaque session token. PostgreSQL stores only its SHA-256 digest. Sessions use a 14-day absolute expiry and are valid only while unexpired, non-revoked, and attached to an `ACTIVE` user. Registration and sign-in derive the persisted expiry from PostgreSQL `statement_timestamp()`, and the browser cookie uses that exact persisted expiry. Session resolution checks expiry and active user state together in one database-clock query; revocation timestamps also use PostgreSQL time. This prevents application-server clock skew from extending or prematurely ending a session. Database clock/read failures deny access rather than falling back to the application clock. Session resolution and revocation first reject malformed, noncanonical, or oversized bearer cookie values without querying PostgreSQL. Only canonical unpadded base64url encodings of 32-byte tokens are accepted.
 
 Sign-out revokes the persisted session before expiring the browser cookie. Successful sign-in and sign-up, and successful sign-out, also expire the previous `sf_organization` preference cookie. This prevents a selected tenant from carrying over between browser identities; the preference is never authorization authority. User suspension therefore removes authenticated access on the next protected request. Expired, revoked, unknown, or otherwise invalid session tokens resolve to no authenticated identity.
 
@@ -48,7 +48,7 @@ The protected account organization list reuses the tenant-safe organization repo
 
 Dependency-free authentication domain tests cover password policy, salted/versioned password hashing, token entropy/digest behavior, and absolute session expiry calculation. Authentication HTTP policy tests cover exact same-origin enforcement, accepted credential form media types, unsupported request media types, missing-session redirects, invalid/expired-session redirects, and successful protected-session pass-through.
 
-The disposable PostgreSQL authentication integration test covers registration, credential persistence, active session resolution, forced session expiry rejection, persisted revocation, subsequent sign-in, and immediate loss of access when the user is suspended.
+The disposable PostgreSQL authentication integration test covers registration, credential persistence, database-clock session expiry and cookie-expiry parity, active session resolution, forced session expiry rejection, database-clock revocation, subsequent sign-in, and immediate loss of access when the user is suspended.
 
 The full database-backed integration path still requires the explicitly acknowledged disposable PostgreSQL target described in the database development documentation; blocked environments must not claim that live verification passed.
 
