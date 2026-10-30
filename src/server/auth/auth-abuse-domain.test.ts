@@ -38,9 +38,9 @@ test('blocked identities do not spend shared admission capacity', async () => {
   const consumed: string[] = [];
   const allowed = await admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-in'], async (scope, limit) => {
     consumed.push(`${scope}:${limit}`);
-    return false;
+    return { allowed: false, retryAfterSeconds: 17 };
   });
-  assert.equal(allowed, false);
+  assert.deepEqual(allowed, { allowed: false, retryAfterSeconds: 17 });
   assert.deepEqual(consumed, ['identity:10']);
 });
 
@@ -49,9 +49,13 @@ test('admitted identities must also pass the deployment-wide quota', async () =>
     const consumed: string[] = [];
     const allowed = await admitAuthAttemptWithBudgets(AUTH_ATTEMPT_LIMITS['sign-up'], async (scope, limit) => {
       consumed.push(`${scope}:${limit}`);
-      return scope === 'identity' || globalAllowed;
+      return scope === 'identity' || globalAllowed
+        ? { allowed: true }
+        : { allowed: false, retryAfterSeconds: 23 };
     });
-    assert.equal(allowed, globalAllowed);
+    assert.deepEqual(allowed, globalAllowed
+      ? { allowed: true }
+      : { allowed: false, retryAfterSeconds: 23 });
     assert.deepEqual(consumed, ['identity:4', 'global:1500']);
   }
 });

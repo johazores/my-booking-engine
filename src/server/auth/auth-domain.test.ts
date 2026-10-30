@@ -129,10 +129,10 @@ test('canonical session tokens reject noncanonical, oversized, and malformed bea
 
 test('authentication validators reject unsafe identity controls and malformed runtime inputs', () => {
   const password = 'x'.repeat(12);
-  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\u200eb@example.test', 'a\u061cb@example.test', 'a\u00adb@example.test']) {
+  for (const email of ['a\u0000b@example.test', 'a\u0085b@example.test', 'a\u202eb@example.test', 'a\ud800@example.test', 'a\u200bb@example.test', 'a\u200eb@example.test', 'a\u061cb@example.test', 'a\u00adb@example.test', 'a\u034fb@example.test', 'a\u200cb@example.test', 'a\u{e0001}b@example.test']) {
     assert.throws(() => validateSignInInput({ email, password }), AuthValidationError);
   }
-  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root', 'Admin\u200fRoot', 'Admin\u206aRoot', 'Admin\u00adRoot']) {
+  for (const displayName of ['Admin\u0000Root', 'Admin\u202eRoot', 'Admin\u2066Root', 'Admin\ud800Root', 'Admin\u2060Root', 'Admin\u200fRoot', 'Admin\u206aRoot', 'Admin\u00adRoot', 'Admin\u034fRoot', 'Admin\u200dRoot', 'Admin\ufe0fRoot']) {
     assert.throws(() => validateSignUpInput({ email: 'user@example.test', password, displayName }), AuthValidationError);
   }
   assert.equal(validateSignUpInput({ email: 'user@example.test', password, displayName: 'Renée 李' }).displayName, 'Renée 李');

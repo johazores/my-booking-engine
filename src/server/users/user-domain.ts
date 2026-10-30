@@ -11,23 +11,12 @@ const userStatusTransitions: Record<
   ARCHIVED: [],
 };
 
-/** Reject hidden identity formatting, directional controls, and unpaired surrogates. */
+// Default-ignorable code points also include grapheme joiners, variation
+// selectors, and invisible tags outside the Unicode format category.
+const UNSAFE_IDENTITY_CHARACTER = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]/u;
+
 export function hasUnsafeIdentityControls(value: string) {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0)!;
-    if (
-      codePoint <= 0x1f ||
-      (codePoint >= 0x7f && codePoint <= 0x9f) ||
-      (codePoint >= 0xd800 && codePoint <= 0xdfff) ||
-      (codePoint >= 0x2028 && codePoint <= 0x202e) ||
-      (codePoint >= 0x2060 && codePoint <= 0x206f) ||
-      codePoint === 0x00ad || codePoint === 0x061c ||
-      codePoint === 0x180e || codePoint === 0x200b ||
-      codePoint === 0x200e || codePoint === 0x200f ||
-      codePoint === 0xfeff
-    ) return true;
-  }
-  return false;
+  return UNSAFE_IDENTITY_CHARACTER.test(value);
 }
 
 export function normalizeUserEmail(value: string) {

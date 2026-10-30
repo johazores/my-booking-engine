@@ -2,11 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  AUTH_FORM_MAX_BYTES,
   applyAuthResponseNoStore,
   getAuthRequiredRedirect,
   isSameOriginAuthRequest,
   isSupportedAuthFormRequest,
 } from './auth-http-policy.ts';
+
+test('credential form ingress uses a smaller bounded body budget', () => {
+  assert.equal(AUTH_FORM_MAX_BYTES, 8192);
+});
 
 test('authentication mutations accept only exact same-origin requests', () => {
   const sameOrigin = new Request('https://sf.example/api/auth/sign-in', {

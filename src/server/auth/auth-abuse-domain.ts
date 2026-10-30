@@ -3,6 +3,9 @@ import { normalizeUserEmail } from '../users/user-domain.ts';
 
 export type AuthAttemptOperation = 'sign-in' | 'sign-up';
 export type AuthAttemptScope = 'identity' | 'global';
+export type AuthAttemptDecision =
+  | Readonly<{ allowed: true }>
+  | Readonly<{ allowed: false; retryAfterSeconds: number }>;
 export const AUTH_ATTEMPT_WINDOW_SECONDS = 900;
 export const AUTH_ATTEMPT_LIMITS: Record<AuthAttemptOperation, { identity: number; global: number }> = {
   'sign-in': { identity: 10, global: 5000 },
@@ -33,9 +36,10 @@ export function createAuthAttemptDigest(
 
 export async function admitAuthAttemptWithBudgets(
   limits: Readonly<{ identity: number; global: number }>,
-  consume: (scope: AuthAttemptScope, limit: number) => Promise<boolean>,
-): Promise<boolean> {
+  consume: (scope: AuthAttemptScope, limit: number) => Promise<AuthAttemptDecision>,
+): Promise<AuthAttemptDecision> {
   // Repeatedly rejected identities must not consume the shared deployment budget.
-  if (!(await consume('identity', limits.identity))) return false;
+  const identity = await consume('identity', limits.identity);
+  if (!identity.allowed) return identity;
   return consume('global', limits.global);
 }

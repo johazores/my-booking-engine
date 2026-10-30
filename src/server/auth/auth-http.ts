@@ -5,6 +5,7 @@ import { ACTIVE_ORGANIZATION_COOKIE, activeOrganizationCookieOptions } from '../
 
 import { resolveAuthSession } from './auth-service.ts';
 export {
+  AUTH_FORM_MAX_BYTES,
   applyAuthResponseNoStore,
   getAuthRequiredRedirect,
   isSameOriginAuthRequest,

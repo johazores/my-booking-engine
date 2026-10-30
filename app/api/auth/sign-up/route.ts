@@ -4,6 +4,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthValidationError, validateSignUpInput } from '@/server/auth/auth-domain.ts';
 import {
+  AUTH_FORM_MAX_BYTES,
   AUTH_SESSION_COOKIE,
   applyAuthResponseNoStore,
   clearSelectedOrganizationCookie,
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
 
   let formData: FormData;
   try {
-    formData = await readBoundedFormDataOrThrow(request);
+    formData = await readBoundedFormDataOrThrow(request, AUTH_FORM_MAX_BYTES);
   } catch {
     return finish(NextResponse.redirect(new URL('/sign-up?error=validation', request.url), 303), 'rejected');
   }

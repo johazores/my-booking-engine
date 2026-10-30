@@ -1,3 +1,6 @@
+/** Credential forms need far less than the general 64 KiB mutation limit. */
+export const AUTH_FORM_MAX_BYTES = 8 * 1024;
+
 export type AuthSessionStateLike = {
   hadSessionCookie: boolean;
   session: unknown | null;

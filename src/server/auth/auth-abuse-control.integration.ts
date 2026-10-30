@@ -22,13 +22,18 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
   const signupDigest = domain.createAuthAttemptDigest('sign-up', 'identity', firstEmail, key);
   const signinGlobalDigest = domain.createAuthAttemptDigest('sign-in', 'global', '', key);
   const signupGlobalDigest = domain.createAuthAttemptDigest('sign-up', 'global', '', key);
+  const concurrentEmails = Array.from({ length: 8 },
+    () => `auth-limit-${randomUUID()}@example.test`);
+  const concurrentDigests = concurrentEmails.map((email) =>
+    domain.createAuthAttemptDigest('sign-in', 'identity', email, key));
 
   try {
     const attempts = await Promise.all(Array.from({ length: 14 },
       () => reserveAuthAttempt('sign-in', firstEmail)));
     assert.equal(attempts.filter((result) => result.allowed).length, 10);
     assert.equal(attempts.filter((result) => !result.allowed).length, 4);
-    assert.ok(attempts.every((result) => result.allowed || result.retryAfterSeconds === 900));
+    assert.ok(attempts.every((result) => result.allowed ||
+      (result.retryAfterSeconds >= 1 && result.retryAfterSeconds <= 900)));
     assert.equal((await reserveAuthAttempt('sign-in', otherEmail)).allowed, true);
     const signupAttempts = await Promise.all(Array.from({ length: 5 },
       () => reserveAuthAttempt('sign-up', firstEmail)));
@@ -63,7 +68,8 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
     const deniedByGlobal = await reserveAuthAttempt('sign-in', globalBoundaryEmail);
     assert.equal(deniedByGlobal.allowed, false);
     if (!deniedByGlobal.allowed) {
-      assert.equal(deniedByGlobal.retryAfterSeconds, domain.AUTH_ATTEMPT_WINDOW_SECONDS);
+      assert.ok(deniedByGlobal.retryAfterSeconds >= 1 &&
+        deniedByGlobal.retryAfterSeconds <= domain.AUTH_ATTEMPT_WINDOW_SECONDS);
     }
     const globalAtLimit = await db.authAttemptWindow.findFirst({
       where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
@@ -73,6 +79,21 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
       where: { operation: 'sign-in', scope: 'identity', subjectHash: globalBoundaryDigest },
     });
     assert.equal(boundaryIdentity?.attempts, 2);
+
+    // Concurrent distinct identities cannot overshoot the shared limit.
+    const resetGlobal = await db.authAttemptWindow.updateMany({
+      where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
+      data: { attempts: globalLimit - 2 },
+    });
+    assert.equal(resetGlobal.count, 1);
+    const concurrent = await Promise.all(concurrentEmails.map((email) =>
+      reserveAuthAttempt('sign-in', email)));
+    assert.equal(concurrent.filter((result) => result.allowed).length, 2);
+    assert.equal(concurrent.filter((result) => !result.allowed).length, 6);
+    const globalAfterConcurrency = await db.authAttemptWindow.findFirst({
+      where: { operation: 'sign-in', scope: 'global', subjectHash: signinGlobalDigest },
+    });
+    assert.equal(globalAfterConcurrency?.attempts, globalLimit);
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(firstEmail)));
     assert.ok(windows.every((row) => !JSON.stringify(row).includes(otherEmail)));
     delete process.env.SF_AUTH_ABUSE_SECRET;
@@ -81,6 +102,7 @@ test('auth attempt budgets are durable, concurrent, and identity-scoped', async 
     await db.authAttemptWindow.deleteMany({
       where: { subjectHash: { in: [
         firstDigest, otherDigest, globalBoundaryDigest, signupDigest, signinGlobalDigest, signupGlobalDigest,
+        ...concurrentDigests,
       ] } },
     });
     if (originalSecret === undefined) delete process.env.SF_AUTH_ABUSE_SECRET;

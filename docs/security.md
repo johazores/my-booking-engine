@@ -4,12 +4,12 @@
 
 - No secrets are committed and local environment files are ignored.
 - Database access is server-only.
-- User email identities are canonicalized before persistence and backed by database checks. Identity email and optional registration-name validators reject control characters, hidden formatting/directional marks, bidi controls, and unpaired Unicode surrogates.
+- User email identities are canonicalized before persistence and backed by database checks. Identity email and optional registration-name validators reject control characters, Unicode default-ignorable formatting (including invisible joiners and variation selectors), bidi controls, and unpaired Unicode surrogates.
 - Password credentials use versioned salted scrypt hashes; plaintext passwords are never persisted. Stored hash verification rejects noncanonical encodings and parameter aliases.
 - Authentication sessions use random opaque tokens and PostgreSQL stores only SHA-256 token digests. Malformed or noncanonical session cookie values are rejected before session-store access. Session expiry creation, active-session checks, and revocation timestamps use PostgreSQL time rather than application-server clocks.
 - Browser authentication uses HttpOnly, SameSite=Lax session cookies and `Secure` in production.
 - All credential/sign-out and organization-create/select POST responses set `Cache-Control: no-store`; successful identity transitions clear the stale active-organization preference cookie without changing tenant authorization.
-- Authentication mutations require exact same-origin form submissions and supported browser form media types.
+- Authentication mutations require exact same-origin form submissions and supported browser form media types. Credential form bodies have an 8 KiB pre-parse limit.
 - Session validity requires an unexpired, non-revoked session plus an `ACTIVE` user.
 - Tenant organization lookup requires an active organization, active membership, and active user.
 - Only `ACTIVE` memberships grant tenant access; invited, suspended, and archived memberships do not.
@@ -22,7 +22,7 @@
 
 ## Authentication security
 
-**Partially implemented, not production-validated:** sign-in and sign-up validate canonical email and password length (plus optional registration display name) before spending shared quota, then reserve bounded database-clock attempts before credential work. Both services independently repeat the same shared validators before credential lookup or registration. Identity keys are keyed HMACs and counters are atomic across replicas. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
+**Partially implemented, not production-validated:** sign-in and sign-up validate canonical email and password length (plus optional registration display name) before spending shared quota, then reserve bounded database-clock attempts before credential work. Both services independently repeat the same shared validators before credential lookup or registration. Identity keys are keyed HMACs and counters are atomic across replicas, including concurrent distinct identities at the shared quota boundary. Rejections return a database-clock fixed-window Retry-After rather than an unconditional 15-minute delay. `SF_AUTH_ABUSE_SECRET` is mandatory and must be consistent across instances. The migration has not been executed against a disposable PostgreSQL target in this environment. Trusted per-source limits, edge protection, and sign-up account-enumeration remediation remain open. See `docs/authentication-abuse-control.md`.
 
 The production authentication strategy is documented in `docs/authentication.md` and the browser flow is implemented.
 

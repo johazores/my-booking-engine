@@ -9,7 +9,7 @@ const messages: Record<string, string> = {
   session: 'Your session expired or is no longer valid. Sign in again.',
   credentials: 'The email or password is incorrect.',
   validation: 'Enter a valid email address and password.',
-  'rate-limited': 'Too many attempts. Please wait 15 minutes and try again.',
+  'rate-limited': 'Too many attempts. Please wait before trying again.',
   server: 'Sign in could not be completed. Please try again.',
 };
 

@@ -6,7 +6,7 @@ import { readAuthSession } from '@/server/auth/auth-http.ts';
 
 const messages: Record<string, string> = {
   validation: 'Check your details. Passwords must contain 12 to 128 characters.',
-  'rate-limited': 'Too many attempts. Please wait 15 minutes and try again.',
+  'rate-limited': 'Too many attempts. Please wait before trying again.',
   server: 'Your account could not be created. Please try again.',
 };
 
