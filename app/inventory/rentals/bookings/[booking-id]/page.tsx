@@ -15,6 +15,7 @@ import { readRentalBookingSecurityBondGuard } from '@/server/bookings/rental-boo
 import { listRentalBookingPaymentTransactions, RentalPaymentUnavailableError } from '@/server/payments/rental-payment-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const statuses: Record<string, string> = {
   'booking-confirmed': 'Rental booking confirmed and physical inventory committed.',
@@ -156,8 +157,8 @@ export default async function RentalBookingDetailPage({ params, searchParams }: 
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link>{canReadAvailability ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/holds/${booking.holdId}`}>Source hold</Link> : null}{canReadInventory && booking.allocation ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/units/${booking.allocation.unitId}`}>Effective unit</Link> : null}{canReviewReschedule ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>{beforePickup ? 'Reschedule rental' : 'Extend rental'}</Link> : null}{canReviewUnitSubstitution ? <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/unit-substitution`}>Replace unit</Link> : null}</div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {!booking.allocation ? <p className="sf-alert sf-alert--error" role="alert">This booking is missing its physical-unit allocation. Treat the record as an integrity incident until repaired.</p> : null}
     {booking.custody.overdue && booking.custody.expectedReturnOn ? <p className="sf-alert sf-alert--error" role="alert"><strong>Overdue custody.</strong> The exclusive committed end {booking.custody.expectedReturnOn.toISOString().slice(0, 10)} has been reached in {booking.location.timeZone}, but return has not been recorded. The physical unit remains blocked from new inventory authority until return is recorded. This status does not create a fee or change the committed rental period.</p> : null}
 

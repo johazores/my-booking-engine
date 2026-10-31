@@ -10,6 +10,7 @@ import { readRentalBookingEffectiveSettlement } from '@/server/bookings/rental-b
 import { getRentalBooking, RentalBookingUnavailableError } from '@/server/bookings/rental-booking-read-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const statusMessages: Record<string, string> = {
   'amendment-prepared': 'Commercial amendment prepared. Record the exact real-world adjustment before final apply.',
@@ -106,8 +107,8 @@ export default async function RentalCommercialAmendmentPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}/reschedule`}>Date-change review</Link></div>
     </header>
 
-    {query.status && statusMessages[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statusMessages[query.status]}</p> : null}
-    {query.error && errorMessages[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errorMessages[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statusMessages, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statusMessages, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errorMessages, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errorMessages, query.error)}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="commercial-summary-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Retained authority</p><h2 id="commercial-summary-title">{amendment.status.toLowerCase()} · {commercial.settlement.state.toLowerCase()}</h2></div><span>{amendment.direction === 'ADDITIONAL_CHARGE' ? 'Additional charge' : 'Refund'} {amendment.currency} {delta}</span></div>

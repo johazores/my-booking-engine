@@ -13,6 +13,7 @@ import {
 } from '@/server/customers/customer-domain.ts';
 import { listCustomers } from '@/server/customers/customer-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing customers.',
@@ -128,8 +129,8 @@ export default async function CustomersPage({
         <span className="sf-customers-page__count">{result.total} total</span>
       </header>
 
-      {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
-      {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+      {params.status && readKnownQueryMessage(statuses, params.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, params.status)}</p> : null}
+      {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
 
       <section className="sf-customers-toolbar" aria-label="Customer filters">
         <form className="sf-customers-filter" method="get">

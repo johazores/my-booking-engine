@@ -10,6 +10,7 @@ import {
   AppointmentInventoryUnavailableError,
 } from '@/server/inventory/appointment-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 
@@ -127,8 +128,8 @@ export default async function AppointmentStaffDetailPage({
       </div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {staff.description ? <section className="sf-inventory-card"><p className="sf-eyebrow">Staff notes</p><p>{staff.description}</p></section> : null}
 
     <div className="sf-inventory-layout">

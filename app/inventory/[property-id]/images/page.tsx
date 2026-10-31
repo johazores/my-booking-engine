@@ -8,6 +8,7 @@ import { parseInventoryPage } from '@/server/inventory/hospitality-domain.ts';
 import { listHospitalityImagesPage } from '@/server/inventory/hospitality-image-service.ts';
 import { listHospitalityRoomTypes, readHospitalityProperty, readHospitalityRoomType } from '@/server/inventory/hospitality-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const messages: Record<string, string> = {
   'image-created': 'Image added.',
@@ -87,8 +88,8 @@ export default async function HospitalityImagesPage({
       <span className={`sf-status-badge${property.status === 'ARCHIVED' ? ' sf-status-badge--muted' : ''}`}>{property.status.toLowerCase()}</span>
     </header>
 
-    {query.status && messages[query.status] ? <p className="sf-alert sf-alert--success" role="status">{messages[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(messages, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(messages, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
     <section className="sf-inventory-card sf-image-scope" aria-labelledby="image-scope-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Image scope</p><h2 id="image-scope-title">Choose what these images describe</h2></div><span>{imageResult.total} images</span></div>

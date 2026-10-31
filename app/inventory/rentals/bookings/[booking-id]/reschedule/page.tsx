@@ -16,6 +16,7 @@ import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-avai
 import { RentalInventoryValidationError } from '@/server/inventory/rental-domain.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const blockerMessages = {
   NO_CHANGE: 'Choose dates that differ from the current effective rental period.',
@@ -163,7 +164,7 @@ export default async function RentalBookingRescheduleReviewPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
-    {query.error && applyErrors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{applyErrors[query.error]}</p> : null}
+    {query.error && readKnownQueryMessage(applyErrors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(applyErrors, query.error)}</p> : null}
     {reviewError ? <p className="sf-alert sf-alert--error" role="alert">{reviewError}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-reschedule-review-title">

@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { listHospitalityProperties } from '@/server/inventory/hospitality-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing inventory.',
@@ -49,8 +50,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header"><div><p className="sf-eyebrow">Hospitality inventory</p><h1>Properties</h1><p>Manage the real property → room type → room hierarchy for {activeContext.organization.name}.</p></div><div className="sf-image-scope__nav"><span className="sf-inventory-count">{result.total} properties</span><Link className="sf-button sf-button--secondary" href="/inventory/tours">Tours and packages</Link><Link className="sf-button sf-button--secondary" href="/inventory/appointments">Appointments</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals">Rentals</Link></div></header>
-    {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
-    {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+    {params.status && readKnownQueryMessage(statuses, params.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, params.status)}</p> : null}
+    {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
       <section className="sf-inventory-card" aria-labelledby="properties-title">
         <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Portfolio</p><h2 id="properties-title">Property records</h2></div><span>{first}–{last} of {result.total}</span></div>

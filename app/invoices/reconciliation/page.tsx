@@ -9,6 +9,7 @@ import { parseHospitalityLegalDocumentPage } from '@/server/payments/hospitality
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 
 import { ReconciliationRunForm } from './reconciliation-run-form.tsx';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const PAGE_SIZE = 20;
 
@@ -72,7 +73,7 @@ export default async function TaxDocumentReconciliationPage({ searchParams }: {
 
     {query.status === 'verified' ? <p className="sf-alert sf-alert--success" role="status">Reconciliation completed and the bounded register passed all implemented integrity checks.</p> : null}
     {query.status === 'failed' ? <p className="sf-alert sf-alert--error" role="alert">Reconciliation completed with integrity concerns. Review the newest recorded result before using this register for close or investigation.</p> : null}
-    {typeof query.error === 'string' && Object.hasOwn(errorMessages, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{errorMessages[query.error]}</p> : null}
+    {typeof query.error === 'string' && Object.hasOwn(errorMessages, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errorMessages, query.error)}</p> : null}
 
     <section className="sf-invoice-history-card" aria-labelledby="run-reconciliation-title">
       <div className="sf-invoice-history-card__heading"><div><p className="sf-eyebrow">Point-in-time verification</p><h2 id="run-reconciliation-title">Run an integrity check</h2></div><span>AU</span></div>

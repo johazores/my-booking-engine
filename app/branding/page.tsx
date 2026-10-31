@@ -6,6 +6,7 @@ import { organizationRoleHasPermission } from '@/server/authorization/authorizat
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { readOrganizationBranding } from '@/server/branding/branding-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing branding.',
@@ -62,7 +63,7 @@ export default async function BrandingPage({
       </header>
 
       {params.status === 'updated' ? <p className="sf-alert sf-alert--success" role="status">Branding settings updated and audited.</p> : null}
-      {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+      {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
 
       <section className="sf-branding-preview" aria-labelledby="branding-preview-title">
         <div className="sf-branding-preview__identity">

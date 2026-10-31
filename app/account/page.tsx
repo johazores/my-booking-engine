@@ -8,6 +8,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { listMembershipsForOrganizationPage } from '@/server/memberships/membership-repository.ts';
 import { listOrganizationsForUserPage } from '@/server/organizations/organization-repository.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const ACCOUNT_COLLECTION_PAGE_SIZE = 20;
 
@@ -115,12 +116,12 @@ export default async function AccountPage({
     pageSize: ACCOUNT_COLLECTION_PAGE_SIZE,
   });
   const activeContext = await readActiveOrganizationContext(session.user.id);
-  const statusMessage = params.status ? statusMessages[params.status] : undefined;
-  const organizationError = params.organizationError ? organizationErrors[params.organizationError] : undefined;
-  const settingsError = params.settingsError ? settingsErrors[params.settingsError] : undefined;
-  const archiveError = params.archiveError ? archiveErrors[params.archiveError] : undefined;
-  const roleError = params.roleError ? roleErrors[params.roleError] : undefined;
-  const memberError = params.memberError ? memberErrors[params.memberError] : undefined;
+  const statusMessage = params.status ? readKnownQueryMessage(statusMessages, params.status) : undefined;
+  const organizationError = params.organizationError ? readKnownQueryMessage(organizationErrors, params.organizationError) : undefined;
+  const settingsError = params.settingsError ? readKnownQueryMessage(settingsErrors, params.settingsError) : undefined;
+  const archiveError = params.archiveError ? readKnownQueryMessage(archiveErrors, params.archiveError) : undefined;
+  const roleError = params.roleError ? readKnownQueryMessage(roleErrors, params.roleError) : undefined;
+  const memberError = params.memberError ? readKnownQueryMessage(memberErrors, params.memberError) : undefined;
 
   const authorization = activeContext.organization
     ? await readOrganizationAuthorization({ organizationId: activeContext.organization.id, userId: session.user.id })

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { BrandMark } from '@/components/brand-mark';
 import { readAuthSession } from '@/server/auth/auth-http.ts';
 import { getAuthRateLimitMessage } from '@/server/auth/auth-http-policy.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const messages: Record<string, string> = {
   validation: 'Check your email, name, and password. Passwords must be 12 to 128 characters and names at most 160 characters.',
@@ -23,7 +24,7 @@ export default async function SignUpPage({
   const params = await searchParams;
   const message = params.error === 'rate-limited'
     ? getAuthRateLimitMessage(params.retry)
-    : params.error ? messages[params.error] : undefined;
+    : params.error ? readKnownQueryMessage(messages, params.error) : undefined;
 
   return (
     <main className="sf-auth-shell">

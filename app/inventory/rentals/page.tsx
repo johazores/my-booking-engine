@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { listRentalInventory } from '@/server/inventory/rental-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage rental inventory.',
@@ -86,8 +87,8 @@ export default async function RentalInventoryPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--primary" href="/inventory/rentals/availability">Availability preview</Link><Link className="sf-button sf-button--secondary" href="/inventory">Hospitality</Link><Link className="sf-button sf-button--secondary" href="/inventory/tours">Tours</Link><Link className="sf-button sf-button--secondary" href="/inventory/appointments">Appointments</Link></div>
     </header>
 
-    {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
-    {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+    {params.status && readKnownQueryMessage(statuses, params.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, params.status)}</p> : null}
+    {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
 
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
       <section className="sf-inventory-card" aria-labelledby="rental-locations-title">

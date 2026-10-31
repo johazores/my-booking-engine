@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { readTourInventoryDetail, TourInventoryUnavailableError } from '@/server/inventory/tour-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing tour inventory.',
@@ -138,8 +139,8 @@ export default async function TourInventoryDetailPage({
       </div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {product.description ? <section className="sf-inventory-card"><p className="sf-eyebrow">Description</p><p>{product.description}</p></section> : null}
 
     <div className="sf-inventory-layout">

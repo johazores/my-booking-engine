@@ -10,6 +10,7 @@ import { listHospitalityBaseRates } from '@/server/pricing/hospitality-pricing-s
 import { listHospitalityPricingScopes } from '@/server/pricing/hospitality-pricing-scope-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage pricing.',
@@ -65,8 +66,8 @@ export default async function PropertyPricingPage({ params, searchParams }: {
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header"><div><Link className="sf-back-link" href="/pricing">← Pricing</Link><p className="sf-eyebrow">Hospitality pricing</p><h1>{property.name}</h1><p>Nightly base rates use exact {organization.currency} minor-unit storage. Overlapping active windows are not allowed.</p></div><div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary sf-button--compact" href={`/pricing/${propertyId}/charges`}>Taxes & fees</Link><Link className="sf-button sf-button--secondary sf-button--compact" href={`/pricing/${propertyId}/addons`}>Add-ons</Link><Link className="sf-button sf-button--secondary sf-button--compact" href={`/inventory/${propertyId}/rate-plans`}>Rate plans</Link><Link className="sf-button sf-button--secondary sf-button--compact" href={`/inventory/${propertyId}/restrictions`}>Restrictions</Link></div></header>
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {property.status === 'ARCHIVED' ? <p className="sf-alert" role="status">This property is archived. Pricing is read-only.</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="pricing-scopes-title"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Sellable scopes</p><h2 id="pricing-scopes-title">Room type + rate plan</h2></div><span>{scopes.total} assignments</span></div>

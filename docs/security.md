@@ -98,3 +98,7 @@ Authenticated inventory, rental booking, custody, and inventory-related commerci
 ## Customer, pricing, and integration browser mutation redirects
 
 Customer, pricing, and integration-management POST handlers use the shared local-path redirect guard instead of request-Host-derived absolute redirects. Their observation finish boundaries set `Cache-Control: no-store` on all outcomes, including authorization failures and provider configuration/test errors. Redirect path/query identifiers from browser forms are URI-encoded where applicable. Existing server-side tenant/resource/permission and provider-credential protections remain authoritative. See `docs/form-request-ingress.md`.
+
+## Query-string feedback safety
+
+Server-rendered sign-in, sign-up, account, customer, inventory, pricing, integration, booking, and reconciliation pages use an own-key-only feedback lookup for display messages selected by URL query parameters. Arbitrary keys such as `__proto__`, `constructor`, and `toString`, repeated query values, and unknown keys cannot select inherited JavaScript object properties or render non-string objects as React children. This is presentation hardening only: query parameters never grant authorization or confirm a commercial write. The dependency-free `scripts/known-query-message-contract.test.mjs` covers hostile keys and guards the known page-message lookup patterns.

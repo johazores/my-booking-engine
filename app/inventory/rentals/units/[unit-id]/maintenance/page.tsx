@@ -10,6 +10,7 @@ import { readRentalUnitMaintenanceWorkOrders } from '@/server/inventory/rental-m
 import { readRentalUnitOperationalState } from '@/server/inventory/rental-unit-operational-service.ts';
 import { RentalInventoryUnavailableError } from '@/server/inventory/rental-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage rental maintenance.',
@@ -112,8 +113,8 @@ export default async function RentalUnitMaintenancePage({
       </div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {operationalState.status === 'OUT_OF_SERVICE' ? <p className="sf-alert" role="status"><strong>Unit remains out of service.</strong> {operationalState.reason ?? 'Operational hold is active.'} Complete or cancel active maintenance first, then explicitly return the unit to service from the unit page after verification.</p> : null}
 
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>

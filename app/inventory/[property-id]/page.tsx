@@ -17,6 +17,7 @@ import {
   readHospitalityRoomType,
 } from '@/server/inventory/hospitality-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage inventory.',
@@ -180,11 +181,11 @@ export default async function PropertyInventoryPage({
         </span>
       </header>
 
-      {query.status && statuses[query.status] ? (
-        <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p>
+      {query.status && readKnownQueryMessage(statuses, query.status) ? (
+        <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p>
       ) : null}
-      {query.error && errors[query.error] ? (
-        <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p>
+      {query.error && readKnownQueryMessage(errors, query.error) ? (
+        <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p>
       ) : null}
 
       <section className="sf-inventory-summary" aria-label="Property details">

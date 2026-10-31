@@ -6,6 +6,7 @@ import { organizationRoleHasPermission } from '@/server/authorization/authorizat
 import { readOrganizationAuthorization } from '@/server/authorization/authorization-service.ts';
 import { listIntegrationsPage, readIntegrationByProviderCode } from '@/server/integrations/integration-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const INTEGRATION_COLLECTION_PAGE_SIZE = 20;
 const FEATURED_PROVIDER_CODES = ['stripe', 'travelport-stays'] as const;
@@ -213,8 +214,8 @@ export default async function IntegrationsPage({
         <span className="sf-integrations-page__count">{configuredCount} configured</span>
       </header>
 
-      {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
-      {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+      {params.status && readKnownQueryMessage(statuses, params.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, params.status)}</p> : null}
+      {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
 
       <section className="sf-integration-card" aria-labelledby="stripe-integration-title">
         <div className="sf-integration-card__header">

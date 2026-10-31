@@ -18,6 +18,7 @@ import { RentalBookingUnitSubstitutionValidationError } from '@/server/bookings/
 import { RentalAvailabilityIntegrityError } from '@/server/inventory/rental-availability-domain.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const blockerMessages = {
   NO_CHANGE: 'Choose a different physical unit.',
@@ -135,7 +136,7 @@ export default async function RentalBookingUnitSubstitutionReviewPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${booking.id}`}>Back to booking</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
-    {query.error && applyErrors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{applyErrors[query.error]}</p> : null}
+    {query.error && readKnownQueryMessage(applyErrors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(applyErrors, query.error)}</p> : null}
     {reviewError ? <p className="sf-alert sf-alert--error" role="alert">{reviewError}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-unit-substitution-candidates-title">

@@ -12,6 +12,7 @@ import {
 } from '@/server/inventory/hospitality-rate-plan-service.ts';
 import { readHospitalityProperty } from '@/server/inventory/hospitality-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage rate plans.',
@@ -119,8 +120,8 @@ export default async function HospitalityRatePlansPage({
       </div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {property.status === 'ARCHIVED' ? <p className="sf-alert" role="status">This property is archived. Rate-plan configuration is read-only.</p> : null}
 
     <div className={`sf-inventory-layout${canMutateProperty ? '' : ' sf-inventory-layout--single'}`}>

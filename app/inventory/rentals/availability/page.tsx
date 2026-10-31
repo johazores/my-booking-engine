@@ -11,6 +11,7 @@ import { searchRentalInventoryAvailability } from '@/server/inventory/rental-ava
 import { RentalInventoryValidationError } from '@/server/inventory/rental-domain.ts';
 import { RentalInventoryUnavailableError } from '@/server/inventory/rental-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 type RentalAvailabilitySearchParams = {
   unitTypeCode?: string;
@@ -121,8 +122,8 @@ export default async function RentalAvailabilityPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/holds">Active holds</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals">Back to rentals</Link></div>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-availability-search-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory preview</p><h2 id="rental-availability-search-title">Check a rental window</h2></div><span>Maximum 90 days</span></div>

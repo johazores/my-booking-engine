@@ -10,6 +10,7 @@ import { listHospitalityChargeRules } from '@/server/pricing/hospitality-charge-
 import { listHospitalityPricingScopes } from '@/server/pricing/hospitality-pricing-scope-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage pricing.',
@@ -69,8 +70,8 @@ export default async function HospitalityChargesPage({ params, searchParams }: {
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header"><div><Link className="sf-back-link" href={`/pricing/${propertyId}`}>← Base pricing</Link><p className="sf-eyebrow">Hospitality pricing</p><h1>Taxes & fees</h1><p>{property.name} · exact {organization.currency} fixed amounts or basis-point percentages.</p></div><Link className="sf-button sf-button--secondary sf-button--compact" href={`/pricing/${propertyId}`}>Base rates</Link></header>
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     {property.status === 'ARCHIVED' ? <p className="sf-alert" role="status">This property is archived. Taxes and fees are read-only.</p> : null}
 
     <div className={`sf-inventory-layout${canMutate ? '' : ' sf-inventory-layout--single'}`}>

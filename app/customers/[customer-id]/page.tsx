@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { readCustomerWithActivity } from '@/server/customers/customer-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
 import { assertUuidIdentifier } from '@/server/tenancy/tenant-scope.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage customers.',
@@ -93,8 +94,8 @@ export default async function CustomerDetailPage({
         </span>
       </header>
 
-      {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-      {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+      {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+      {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
       <div className="sf-customer-detail__grid">
         <section className="sf-customers-card" aria-labelledby="customer-information-title">

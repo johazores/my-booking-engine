@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { listRentalAvailabilityHolds } from '@/server/inventory/rental-hold-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const statuses: Record<string, string> = {
   'hold-released': 'Rental availability hold released.',
@@ -74,8 +75,8 @@ export default async function RentalAvailabilityHoldsPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--primary" href="/inventory/rentals/availability">Availability preview</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals">Rental inventory</Link></div>
     </header>
 
-    {params.status && statuses[params.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[params.status]}</p> : null}
-    {params.error && errors[params.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[params.error]}</p> : null}
+    {params.status && readKnownQueryMessage(statuses, params.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, params.status)}</p> : null}
+    {params.error && readKnownQueryMessage(errors, params.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, params.error)}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-holds-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Inventory protection</p><h2 id="rental-holds-title">Effective holds</h2></div><span>{holds.total} active</span></div>

@@ -8,6 +8,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { RentalInventoryUnavailableError, readRentalUnitTypeInventory } from '@/server/inventory/rental-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to manage rental inventory.',
@@ -81,8 +82,8 @@ export default async function RentalUnitTypePage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header"><div><p className="sf-eyebrow">Rental unit type</p><h1>{inventory.unitType.name}</h1><p>{inventory.unitType.code} · {inventory.unitType.currency} · default {inventory.unitType.defaultDailyRateMinor} minor units/day</p></div><Link className="sf-button sf-button--secondary" href="/inventory/rentals">Back to rentals</Link></header>
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
       <section className="sf-inventory-card"><div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Units</p><h2>Physical rental units</h2></div><span>{inventory.units.total} active</span></div>

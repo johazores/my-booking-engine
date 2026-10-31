@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { BrandMark } from '@/components/brand-mark';
 import { readAuthSession } from '@/server/auth/auth-http.ts';
 import { getAuthRateLimitMessage } from '@/server/auth/auth-http-policy.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const messages: Record<string, string> = {
   required: 'Sign in to continue.',
@@ -22,7 +23,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const params = await searchParams;
   const message = params.error === 'rate-limited'
     ? getAuthRateLimitMessage(params.retry)
-    : params.error ? messages[params.error] : undefined;
+    : params.error ? readKnownQueryMessage(messages, params.error) : undefined;
 
   return (
     <main className="sf-auth-shell">

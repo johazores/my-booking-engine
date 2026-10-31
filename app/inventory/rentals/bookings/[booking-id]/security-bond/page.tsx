@@ -8,6 +8,7 @@ import { readRentalSecurityBondForfeiture } from '@/server/payments/rental-secur
 import { readRentalSecurityBond, RentalSecurityBondUnavailableError } from '@/server/payments/rental-security-bond-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const statuses: Record<string, string> = {
   'bond-required': 'Security bond requirement recorded.',
@@ -97,8 +98,8 @@ export default async function RentalSecurityBondPage({ params, searchParams }: {
       <Link className="sf-button sf-button--secondary" href={`/inventory/rentals/bookings/${encodeURIComponent(data.booking.id)}`}>Back to booking</Link>
     </header>
 
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
     <section className="sf-inventory-card" aria-labelledby="rental-security-bond-title">
       <div className="sf-inventory-card__heading"><div><p className="sf-eyebrow">Commercial custody safeguard</p><h2 id="rental-security-bond-title">Security bond</h2></div><span>{effectiveState ?? 'NOT REQUIRED'}</span></div>

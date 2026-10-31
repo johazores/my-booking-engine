@@ -7,6 +7,7 @@ import { readOrganizationAuthorization } from '@/server/authorization/authorizat
 import { parseInventoryPage, parseInventoryPageSize } from '@/server/inventory/hospitality-domain.ts';
 import { listHospitalityAmenitiesPage } from '@/server/inventory/hospitality-amenity-service.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   tenant: 'Choose an active organization before managing amenities.',
@@ -62,8 +63,8 @@ export default async function AmenitiesPage({
 
   return <div className="sf-inventory-page">
     <header className="sf-inventory-page__header"><div><Link className="sf-back-link" href="/inventory">← Inventory</Link><p className="sf-eyebrow">Hospitality inventory</p><h1>Amenities</h1><p>Maintain reusable tenant-owned amenities and assign them to properties or room types.</p></div><span className="sf-inventory-count">{result.total} amenities</span></header>
-    {query.status && statuses[query.status] ? <p className="sf-alert sf-alert--success" role="status">{statuses[query.status]}</p> : null}
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.status && readKnownQueryMessage(statuses, query.status) ? <p className="sf-alert sf-alert--success" role="status">{readKnownQueryMessage(statuses, query.status)}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
 
     <div className={`sf-inventory-layout${canManage ? '' : ' sf-inventory-layout--single'}`}>
       <section className="sf-inventory-card" aria-labelledby="amenities-title">

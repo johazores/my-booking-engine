@@ -11,6 +11,7 @@ import { readRentalAvailabilityHoldPricingReview } from '@/server/inventory/rent
 import { RentalInventoryUnavailableError } from '@/server/inventory/rental-service.ts';
 import { moneyMinorToMajorString } from '@/server/pricing/money.ts';
 import { readActiveOrganizationContext } from '@/server/tenancy/tenant-context.ts';
+import { readKnownQueryMessage } from '@/lib/known-query-message.ts';
 
 const errors: Record<string, string> = {
   permission: 'You do not have permission to confirm this rental booking.',
@@ -137,7 +138,7 @@ export default async function RentalAvailabilityHoldDetailPage({
       <div className="sf-image-scope__nav"><Link className="sf-button sf-button--secondary" href="/inventory/rentals/holds">Active holds</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/bookings">Rental bookings</Link><Link className="sf-button sf-button--secondary" href="/inventory/rentals/availability">Availability preview</Link></div>
     </header>
 
-    {query.error && errors[query.error] ? <p className="sf-alert sf-alert--error" role="alert">{errors[query.error]}</p> : null}
+    {query.error && readKnownQueryMessage(errors, query.error) ? <p className="sf-alert sf-alert--error" role="alert">{readKnownQueryMessage(errors, query.error)}</p> : null}
     <p className={`sf-alert ${pricingReview.pricingState === 'CURRENT' ? 'sf-alert--success' : 'sf-alert--error'}`} role="status">{pricingStateMessage(pricingReview.pricingState)}</p>
 
     <section className="sf-inventory-card" aria-labelledby="rental-hold-detail-title">
