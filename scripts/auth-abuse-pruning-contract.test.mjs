@@ -27,6 +27,9 @@ test('disposable PostgreSQL suite covers bounded retention and active-window saf
 test('optional retention only samples admitted attempts and cannot override admission', () => {
   const repository = source('src/server/auth/auth-abuse-repository.ts');
   const domain = source('src/server/auth/auth-abuse-domain.ts');
-  assert.match(repository, /runBestEffortAuthRetention\(\s*decision\.allowed,\s*\(\) => randomBytes\(1\)\[0\] === 0,\s*pruneExpiredAuthAttemptWindowsBatch,/);
-  assert.match(domain, /if \(!admitted\) return;\s*try \{\s*if \(shouldPrune\(\)\) await prune\(\);\s*\} catch \{/);
+  assert.match(repository, /scheduleBestEffortAuthRetention\(\s*decision\.allowed,\s*\(\) => randomBytes\(1\)\[0\] === 0,\s*pruneExpiredAuthAttemptWindowsBatch,/);
+  assert.match(domain, /if \(!admitted \|\| authRetentionInFlight\) return;\s*try \{\s*if \(!shouldPrune\(\)\) return;\s*\} catch \{/);
+  assert.match(domain, /void Promise\.resolve\(\)\.then\(prune\)\.catch\(/);
+  assert.match(domain, /\.finally\(\(\) => \{\s*authRetentionInFlight = false;/);
+  assert.doesNotMatch(repository, /await\s+scheduleBestEffortAuthRetention\(/);
 });

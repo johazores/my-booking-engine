@@ -4,7 +4,7 @@ import test from 'node:test';
 import { AuthRequestAbortedError } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, runBestEffortAuthRetention,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, scheduleBestEffortAuthRetention,
 } from './auth-abuse-domain.ts';
 
 test('auth attempt secret requires canonical 32-byte base64url', () => {
@@ -113,18 +113,56 @@ test('abort during the global quota write cannot refund admission but discards i
 });
 
 
-test('optional auth retention never runs on quota denials or unsampled requests', async () => {
+test('optional auth retention never samples denied attempts or prunes unsampled admissions', async () => {
   const calls: string[] = [];
-  await runBestEffortAuthRetention(false, () => { calls.push('sample'); return true; }, async () => { calls.push('prune'); });
-  await runBestEffortAuthRetention(true, () => { calls.push('sample'); return false; }, async () => { calls.push('prune'); });
+  scheduleBestEffortAuthRetention(false, () => { calls.push('sample'); return true; }, async () => { calls.push('prune'); });
+  scheduleBestEffortAuthRetention(true, () => { calls.push('sample'); return false; }, async () => { calls.push('prune'); });
+  await Promise.resolve();
   assert.deepEqual(calls, ['sample']);
 });
 
-test('optional auth retention runs once when sampled and cannot fail admission', async () => {
+test('optional auth retention never blocks credential admission on slow cleanup', async () => {
+  let release!: () => void;
+  let finished = false;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const result = scheduleBestEffortAuthRetention(true, () => true, async () => {
+    await pending;
+    finished = true;
+  });
+  assert.equal(result, undefined);
+  await Promise.resolve();
+  assert.equal(finished, false);
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(finished, true);
+});
+
+test('optional auth retention skips overlapping cleanup and resumes after settlement', async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
   let prunes = 0;
-  await runBestEffortAuthRetention(true, () => true, async () => { prunes += 1; });
+  scheduleBestEffortAuthRetention(true, () => true, async () => { prunes += 1; await pending; });
+  await Promise.resolve();
+  scheduleBestEffortAuthRetention(true, () => true, async () => { prunes += 1; });
+  await Promise.resolve();
   assert.equal(prunes, 1);
-  await assert.doesNotReject(() => runBestEffortAuthRetention(true, () => { throw new Error('entropy unavailable'); }, async () => { prunes += 1; }));
-  await assert.doesNotReject(() => runBestEffortAuthRetention(true, () => true, async () => { throw new Error('retention unavailable'); }));
+  release();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  scheduleBestEffortAuthRetention(true, () => true, async () => { prunes += 1; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(prunes, 2);
+});
+
+test('optional auth retention contains sampling and cleanup failures without wedging future work', async () => {
+  let prunes = 0;
+  assert.doesNotThrow(() => scheduleBestEffortAuthRetention(true, () => {
+    throw new Error('entropy unavailable');
+  }, async () => { prunes += 1; }));
+  scheduleBestEffortAuthRetention(true, () => true, () => { throw new Error('sync maintenance failure'); });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  scheduleBestEffortAuthRetention(true, () => true, async () => { throw new Error('async maintenance failure'); });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  scheduleBestEffortAuthRetention(true, () => true, async () => { prunes += 1; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(prunes, 1);
 });

@@ -3,7 +3,7 @@ import { db } from '../database.ts';
 import { assertAuthRequestNotAborted } from './auth-request-abort.ts';
 import {
   AUTH_ATTEMPT_LIMITS, AUTH_ATTEMPT_WINDOW_SECONDS,
-  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, runBestEffortAuthRetention,
+  admitAuthAttemptWithBudgets, createAuthAttemptDigest, decodeAuthAbuseSecret, scheduleBestEffortAuthRetention,
   type AuthAttemptOperation, type AuthAttemptScope,
 } from './auth-abuse-domain.ts';
 
@@ -82,7 +82,7 @@ export async function reserveAuthAttempt(operation: AuthAttemptOperation, email:
   // Rejected attempts never sample or trigger additional database cleanup.
   // Both sampling and cleanup failures are non-authoritative after admission.
   assertAuthRequestNotAborted(signal);
-  await runBestEffortAuthRetention(
+  scheduleBestEffortAuthRetention(
     decision.allowed,
     () => randomBytes(1)[0] === 0,
     pruneExpiredAuthAttemptWindowsBatch,

@@ -51,16 +51,27 @@ export async function admitAuthAttemptWithBudgets(
   return global;
 }
 
-/** Retention is optional and must never add work to rejected attempts or fail admission. */
-export async function runBestEffortAuthRetention(
+let authRetentionInFlight = false;
+
+/** Optional retention must not delay, overload, or fail admitted credential requests. */
+export function scheduleBestEffortAuthRetention(
   admitted: boolean,
   shouldPrune: () => boolean,
   prune: () => Promise<unknown>,
-): Promise<void> {
-  if (!admitted) return;
+): void {
+  if (!admitted || authRetentionInFlight) return;
   try {
-    if (shouldPrune()) await prune();
+    if (!shouldPrune()) return;
   } catch {
-    // Neither random sampling nor maintenance failures may override admission.
+    // Entropy/sampling failure is not authentication authority.
+    return;
   }
+  // One in-flight cleanup per process bounds maintenance during a database stall.
+  // Never await optional pruning on the credential admission path.
+  authRetentionInFlight = true;
+  void Promise.resolve().then(prune).catch(() => {
+    // Optional retention errors cannot reject the admitted request.
+  }).finally(() => {
+    authRetentionInFlight = false;
+  });
 }
