@@ -39,7 +39,7 @@ For a **small, controlled** staging probe, compare repeated requests from one re
 ## Operational handoff and release gate
 
 - Record the edge product/configuration version, approved hostnames, trusted proxy hops, direct-origin restrictions, source-key algorithm, route matchers, thresholds, rejection policy, IPv6 handling, and owner in the private deployment runbook. Do not commit secrets, infrastructure access tokens, or customer IPs.
-- Establish safe aggregated monitoring for edge 429s, application `authRateLimited` completions, sign-in success/failure rates, origin 5xx, and crypto-capacity errors. Alert on sustained abuse and on legitimate-user lockouts. Review shared-NAT/corporate/mobile network effects before raising or lowering budgets.
+- Establish safe aggregated monitoring for edge 429s, application `authRateLimited` completions, sign-in success/failure rates, origin 5xx, and application `authCryptoCapacityLimited` failures. Alert on sustained abuse and on legitimate-user lockouts. Review shared-NAT/corporate/mobile network effects before raising or lowering budgets.
 - Recheck the ingress trust chain after CDN, load balancer, DNS, reverse-proxy, or origin network changes.
 - **Do not mark authentication abuse controls complete** until this live staging evidence, Node 24 and disposable PostgreSQL validation, production capacity/load tuning, and a real registration email verification/recovery lifecycle are separately complete. A generic duplicate-email error while successful sign-up creates a session is still account-enumerable.
 

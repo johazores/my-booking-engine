@@ -44,7 +44,22 @@ test('sign-in and sign-up classify redirect-based failures explicitly', () => {
     assert.match(routeSource, /return finish\(response, 'rejected', true\);/);
     assert.match(routeSource, /response\.headers\.set\('Retry-After', String\(attempt\.retryAfterSeconds\)\)/);
     assert.match(routeSource, /authRateLimited \? \{ authRateLimited \} : \{\}/);
-    assert.match(routeSource, /code === 'server' \? 'failed' : 'rejected'/);
+    if (path.includes('/sign-in/')) {
+      assert.match(routeSource, /code === 'server' \? 'failed' : 'rejected'/);
+    } else {
+      // Sign-up intentionally treats confirmed duplicate emails as rejected,
+      // while unexpected registration/crypto failures remain failed.
+      assert.match(routeSource, /const outcome = error instanceof AuthConflictError \|\| error instanceof AuthValidationError\s*\?\s*'rejected'\s*:\s*'failed'/);
+    }
+  }
+});
+
+test('credential routes classify real crypto-capacity exhaustion without identity leakage', () => {
+  for (const flow of ['sign-in', 'sign-up']) {
+    const route = source(`app/api/auth/${flow}/route.ts`);
+    assert.ok(route.includes("import { AuthCryptoCapacityError } from '@/server/auth/auth-crypto-capacity.ts';"));
+    assert.ok(route.includes('error instanceof AuthCryptoCapacityError ? true : undefined'));
+    assert.ok(route.includes('authCryptoCapacityLimited ? { authCryptoCapacityLimited } : {}'));
   }
 });
 

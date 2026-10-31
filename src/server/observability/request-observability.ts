@@ -30,6 +30,8 @@ export interface StructuredRequestLogRecord {
   durationMs: number;
   /** Set only for a server-confirmed PostgreSQL authentication quota rejection. */
   authRateLimited?: true;
+  /** Set only for a server-confirmed authentication scrypt queue overflow or wait timeout. */
+  authCryptoCapacityLimited?: true;
   organizationId?: string;
   bookingReference?: string;
   provider?: string;
@@ -46,6 +48,7 @@ interface RequestObservationOptions {
 interface RequestCompletionOptions {
   failureOutcome?: RequestLogFailureOutcome;
   authRateLimited?: true;
+  authCryptoCapacityLimited?: true;
 }
 
 interface RequestObservationDependencies {
@@ -93,6 +96,7 @@ export function buildStructuredRequestLogRecord(input: {
   scope?: RequestObservationScope;
   failureOutcome?: RequestLogFailureOutcome;
   authRateLimited?: true;
+  authCryptoCapacityLimited?: true;
   now?: () => Date;
 }): StructuredRequestLogRecord {
   const classification = classifyStatus(input.statusCode, input.failureOutcome);
@@ -113,6 +117,13 @@ export function buildStructuredRequestLogRecord(input: {
       (input.operation === 'auth.sign-in' || input.operation === 'auth.sign-up') &&
       classification.outcome === 'rejected') {
     record.authRateLimited = true;
+  }
+
+  // Capacity exhaustion is an operational auth failure, not a PostgreSQL quota denial.
+  if (input.authCryptoCapacityLimited === true &&
+      (input.operation === 'auth.sign-in' || input.operation === 'auth.sign-up') &&
+      classification.outcome === 'failed') {
+    record.authCryptoCapacityLimited = true;
   }
 
   const organizationId = safeLogIdentifier(input.scope?.organizationId);
@@ -169,6 +180,7 @@ export function createRequestObservation(
         scope,
         failureOutcome: completion?.failureOutcome,
         authRateLimited: completion?.authRateLimited,
+        authCryptoCapacityLimited: completion?.authCryptoCapacityLimited,
         now: dependencies.now,
       });
       emitStructuredObservationSafely(sink, record);

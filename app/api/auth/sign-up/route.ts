@@ -1,6 +1,7 @@
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
+import { AuthCryptoCapacityError } from '@/server/auth/auth-crypto-capacity.ts';
 import { AuthValidationError, validateSignUpInput } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_FORM_MAX_BYTES,
@@ -25,10 +26,10 @@ function field(formData: FormData, name: string) {
 
 export async function POST(request: Request) {
   const observation = createRequestObservation(request, { operation: 'auth.sign-up' });
-  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome, authRateLimited?: true) => observation.finish(
+  const finish = (response: Response, failureOutcome?: RequestLogFailureOutcome, authRateLimited?: true, authCryptoCapacityLimited?: true) => observation.finish(
     applyAuthResponseNoStore(response),
     undefined,
-    failureOutcome ? { failureOutcome, ...(authRateLimited ? { authRateLimited } : {}) } : undefined,
+    failureOutcome ? { failureOutcome, ...(authRateLimited ? { authRateLimited } : {}), ...(authCryptoCapacityLimited ? { authCryptoCapacityLimited } : {}) } : undefined,
   );
 
   if (!isSameOriginAuthRequest(request)) {
@@ -78,6 +79,8 @@ export async function POST(request: Request) {
     return finish(
       redirectToLocalPath(`/sign-up?error=${code}`),
       outcome,
+      undefined,
+      error instanceof AuthCryptoCapacityError ? true : undefined,
     );
   }
 }

@@ -142,6 +142,50 @@ test('authentication quota observations expose only a verified, identity-free re
   assert.doesNotMatch(captured.lines[0], /private@example\.test|private-token|retry=60/);
 });
 
+test('authentication crypto-capacity failures are observable without identity or quota confusion', () => {
+  const base = {
+    requestId: 'sf-request.2026-10-31:crypto',
+    operation: 'auth.sign-in',
+    statusCode: 303,
+    durationMs: 8,
+    failureOutcome: 'failed',
+    authCryptoCapacityLimited: true,
+  };
+  const record = buildStructuredRequestLogRecord(base);
+  assert.equal(record.authCryptoCapacityLimited, true);
+  assert.equal(record.authRateLimited, undefined);
+  assert.equal(record.outcome, 'failed');
+  assert.equal(record.level, 'error');
+  for (const field of ['email', 'subjectHash', 'retryAfterSeconds', 'clientIp']) {
+    assert.equal(field in record, false);
+  }
+
+  for (const input of [
+    { ...base, operation: 'organization.create' },
+    { ...base, failureOutcome: 'rejected' },
+    { ...base, authCryptoCapacityLimited: 'true' },
+  ]) {
+    assert.equal(buildStructuredRequestLogRecord(input).authCryptoCapacityLimited, undefined);
+  }
+
+  const observer = createRequestObservation(new Request('https://sf.example.test/api/auth/sign-up?email=private@example.test', {
+    method: 'POST',
+    headers: { authorization: 'Bearer private-token' },
+  }), { operation: 'auth.sign-up' });
+  const captured = captureConsole('error', () => observer.finish(
+    new Response(null, { status: 303, headers: { Location: '/sign-up?error=server' } }),
+    undefined,
+    { failureOutcome: 'failed', authCryptoCapacityLimited: true },
+  ));
+  assert.equal(captured.lines.length, 1);
+  const completion = JSON.parse(captured.lines[0]);
+  assert.equal(completion.authCryptoCapacityLimited, true);
+  assert.equal(completion.authRateLimited, undefined);
+  for (const sensitive of ['private@example.test', 'private-token', 'sign-up?error=server']) {
+    assert.equal(captured.lines[0].includes(sensitive), false);
+  }
+});
+
 test('client error references expose only a validated response correlation id', () => {
   const response = new Response(null, { headers: { [REQUEST_ID_HEADER]: 'sf-request.2026-09-05:0004' } });
   assert.equal(appendRequestReference('Issuance failed.', response), 'Issuance failed. Request reference: sf-request.2026-09-05:0004');
