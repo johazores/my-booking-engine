@@ -15,11 +15,15 @@ interface AuthCryptoCapacityOptions {
 }
 
 interface WaitingRequest {
-  admit: () => void;
+  /** A delayed timer must not allow an expired waiter to inherit a released slot. */
+  admit: () => boolean;
 }
 
-/** A slot is transferred directly to the oldest waiter, never briefly made public. */
-export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOptions>) {
+/** A slot is transferred directly to the oldest eligible waiter, never briefly made public. */
+export function createAuthCryptoLimiter(
+  options: Readonly<AuthCryptoCapacityOptions>,
+  nowMs: () => number = () => performance.now(),
+) {
   const { maxActive, maxQueued, queueTimeoutMs } = options;
   if (![maxActive, maxQueued, queueTimeoutMs].every(Number.isSafeInteger) ||
       maxActive < 1 || maxQueued < 0 || queueTimeoutMs < 1) {
@@ -40,6 +44,7 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let timeout: ReturnType<typeof setTimeout>;
+      const deadline = nowMs() + queueTimeoutMs;
       const removeWaiter = () => {
         const index = waiting.indexOf(waiter);
         if (index !== -1) waiting.splice(index, 1);
@@ -57,10 +62,17 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
       };
       const waiter: WaitingRequest = {
         admit: () => {
-          if (settled) return;
+          if (settled) return false;
           settled = true;
           cleanup();
+          // A busy event loop can delay timer callbacks past the deadline.
+          // Never hand a released crypto slot to an already-expired waiter.
+          if (nowMs() >= deadline) {
+            reject(new AuthCryptoCapacityError());
+            return false;
+          }
           resolve();
+          return true;
         },
       };
       timeout = setTimeout(() => {
@@ -78,9 +90,11 @@ export function createAuthCryptoLimiter(options: Readonly<AuthCryptoCapacityOpti
   }
 
   function release() {
-    const next = waiting.shift();
-    if (next) next.admit();
-    else active -= 1;
+    while (waiting.length > 0) {
+      const next = waiting.shift()!;
+      if (next.admit()) return;
+    }
+    active -= 1;
   }
 
   return async function runWithCapacity<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {

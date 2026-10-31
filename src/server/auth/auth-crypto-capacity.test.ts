@@ -128,3 +128,41 @@ test('aborted waiter can never execute after the active worker finishes', async 
   assert.equal(ran, false);
   assert.equal(await run(async () => 'okay'), 'okay');
 });
+
+
+test('delayed timer cannot admit an expired FIFO waiter ahead of a fresh one', async () => {
+  let clock = 0;
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 2, queueTimeoutMs: 1000 }, () => clock);
+  const blocker = deferred();
+  const first = run(async () => blocker.promise);
+  let staleRan = false;
+  const stale = run(async () => { staleRan = true; });
+  clock = 500;
+  let freshRan = false;
+  const fresh = run(async () => { freshRan = true; return 'fresh'; });
+  clock = 1001;
+  blocker.release();
+  await first;
+  await assert.rejects(stale, AuthCryptoCapacityError);
+  assert.equal(staleRan, false);
+  assert.equal(await fresh, 'fresh');
+  assert.equal(freshRan, true);
+  assert.equal(await run(async () => 'recovered'), 'recovered');
+});
+
+test('all expired waiters are rejected and their capacity is fully released', async () => {
+  let clock = 0;
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 2, queueTimeoutMs: 1000 }, () => clock);
+  const blocker = deferred();
+  const first = run(async () => blocker.promise);
+  let ran = 0;
+  const second = run(async () => { ran += 1; });
+  const third = run(async () => { ran += 1; });
+  clock = 1001;
+  blocker.release();
+  await first;
+  await assert.rejects(second, AuthCryptoCapacityError);
+  await assert.rejects(third, AuthCryptoCapacityError);
+  assert.equal(ran, 0);
+  assert.equal(await run(async () => 'recovered'), 'recovered');
+});
