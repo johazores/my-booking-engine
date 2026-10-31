@@ -29,6 +29,9 @@ The PostgreSQL identity/global admission budgets still apply first, and trusted-
 
 ## Still open
 
+The ingress trust-chain, source-throttling, and non-production evidence checklist is in `docs/authentication-edge-readiness.md`. It is an unfulfilled deployment gate, not evidence that an edge rule is configured.
+
+
 - No trusted client-source identity is available in the app runtime. Do not trust caller-supplied `X-Forwarded-For`. Verify edge header ownership and add trusted per-source protection independently.
 - Global caps can temporarily deny legitimate users during sustained abuse. Monitor privacy-safe operation/outcome counts and tune with real production evidence. This does not replace DDoS/WAF protection.
 - Sign-up maps confirmed duplicate-user-email failures to the same generic browser error as other registration failures, without misclassifying unrelated nested uniqueness failures as existing accounts. However, successful registration still creates an immediate session, so the success/failure distinction can reveal account existence. Full remediation requires a real email verification/recovery lifecycle, not a fake success response.
