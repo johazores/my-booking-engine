@@ -35,3 +35,7 @@ The PostgreSQL identity/global admission budgets still apply first, and trusted-
 - The checked-in migration and integration suite require live Node 24 and disposable PostgreSQL validation before production rollout. The Phase 2 checklist remains open until that evidence and the missing protections exist.
 
 Run `npm run test` and guarded `npm run test:database` with the documented disposable target.
+
+## Browser rate-limit redirect regression
+
+The dependency-free `scripts/auth-rate-limit-redirect-contract.test.mjs` tracks the current path-only HTTP 303 implementation for both credential routes. It checks the database-derived retry value in the local redirect, the `Retry-After` header, no-store response handling, privacy-safe rate-limit observation, and accessible rendered feedback. This source contract was updated after the browser redirects stopped using `URL.searchParams`; the old assertion would fail despite the safe redirect implementation. It does not replace full Node 24 route execution, trusted-source edge enforcement, or live PostgreSQL quota testing.
