@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server';
 
+import { discardUnreadRequestBody } from '@/server/http/request-body-deadline.ts';
+
 import {
   AUTH_SESSION_COOKIE,
   applyAuthResponseNoStore,
@@ -15,6 +17,8 @@ export async function POST(request: NextRequest) {
   const observation = createRequestObservation(request, { operation: 'auth.sign-out' });
   const finish = (response: Response) => observation.finish(applyAuthResponseNoStore(response));
 
+  // Sign-out needs only the cookie header, never a submitted request body.
+  discardUnreadRequestBody(request);
   if (!isSameOriginAuthRequest(request)) {
     return finish(new Response('Forbidden', { status: 403 }));
   }

@@ -1,4 +1,5 @@
 import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
+import { discardUnreadRequestBody } from '@/server/http/request-body-deadline.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthCryptoCapacityError } from '@/server/auth/auth-crypto-capacity.ts';
@@ -34,10 +35,12 @@ export async function POST(request: Request) {
   );
 
   if (!isSameOriginAuthRequest(request)) {
+    discardUnreadRequestBody(request);
     return finish(new Response('Forbidden', { status: 403 }));
   }
 
   if (!isSupportedAuthFormRequest(request)) {
+    discardUnreadRequestBody(request);
     return finish(new Response('Unsupported Media Type', { status: 415 }));
   }
 

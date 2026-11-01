@@ -41,3 +41,16 @@ test('aborted credential requests do not inflate internal auth failure metrics',
   assert.match(signIn, /error instanceof AuthCryptoCapacityError \? true : undefined/);
   assert.match(signUp, /error instanceof AuthCryptoCapacityError \? true : undefined/);
 });
+
+test('authentication routes discard unread bodies at early transport rejection boundaries', () => {
+  for (const flow of ['sign-in', 'sign-up']) {
+    const route = source(`app/api/auth/${flow}/route.ts`);
+    assert.match(route, /import \{ discardUnreadRequestBody \} from '@\/server\/http\/request-body-deadline\.ts';/);
+    assert.match(route, /if \(!isSameOriginAuthRequest\(request\)\) \{\s*discardUnreadRequestBody\(request\);\s*return finish\(new Response\('Forbidden', \{ status: 403 \}\)\)/);
+    assert.match(route, /if \(!isSupportedAuthFormRequest\(request\)\) \{\s*discardUnreadRequestBody\(request\);\s*return finish\(new Response\('Unsupported Media Type', \{ status: 415 \}\)\)/);
+    assert.match(route, /readBoundedFormDataOrThrow\(request, AUTH_FORM_MAX_BYTES\)/);
+  }
+  const signOut = source('app/api/auth/sign-out/route.ts');
+  assert.match(signOut, /discardUnreadRequestBody\(request\);\s*if \(!isSameOriginAuthRequest\(request\)\)/);
+  assert.match(signOut, /await signOutSession\(token\)/);
+});
