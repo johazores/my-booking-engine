@@ -77,8 +77,19 @@ export function findPasswordCredentialByEmail(email: string) {
         status: 'ACTIVE',
       },
     },
-    include: {
-      user: true,
+    // Authentication needs only the credential and the active principal identity.
+    // Do not hydrate platform role, timestamps, or future user-profile fields.
+    select: {
+      userId: true,
+      passwordHash: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          displayName: true,
+          status: true,
+        },
+      },
     },
   });
 }

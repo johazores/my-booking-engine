@@ -79,6 +79,16 @@ test('password registration, session expiry, revocation, sign-in, and user suspe
     assert.ok(credential);
     assert.equal(credential.passwordHash.includes(password), false);
 
+    // The sign-in repository must never hydrate unrelated user profile/role
+    // fields or credential metadata into the authentication service.
+    const credentialRead = await authRepository.findPasswordCredentialByEmail(email);
+    assert.ok(credentialRead);
+    assert.deepEqual(Object.keys(credentialRead).sort(), ['passwordHash', 'user', 'userId']);
+    assert.deepEqual(Object.keys(credentialRead.user).sort(), ['displayName', 'email', 'id', 'status']);
+    assert.equal(credentialRead.userId, userId);
+    assert.equal(credentialRead.user.id, userId);
+    assert.equal(credentialRead.passwordHash, credential.passwordHash);
+
     assert.equal(
       (await authService.resolveAuthSession(registration.token))?.user.id,
       userId,
