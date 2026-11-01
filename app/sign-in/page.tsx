@@ -34,7 +34,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           <h1 className="sf-auth-card__title" id="sign-in-title">Sign in to SF</h1>
           <p className="sf-auth-card__copy">Use your account to access organizations you currently belong to.</p>
         </div>
-        {params.status === 'signed-out' ? <p className="sf-alert sf-alert--success">You have been signed out.</p> : null}
+        {params.status === 'signed-out' ? <p className="sf-alert sf-alert--success" role="status">You have been signed out.</p> : null}
         {message ? <p className="sf-alert sf-alert--error" role="alert">{message}</p> : null}
         <form className="sf-form" action="/api/auth/sign-in" method="post">
           <label className="sf-field"><span>Email</span><input name="email" type="email" autoComplete="email" maxLength={320} required /></label>

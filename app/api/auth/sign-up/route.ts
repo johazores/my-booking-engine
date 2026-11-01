@@ -2,6 +2,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthCryptoCapacityError } from '@/server/auth/auth-crypto-capacity.ts';
+import { AuthRequestAbortedError } from '@/server/auth/auth-request-abort.ts';
 import { AuthValidationError, validateSignUpInput } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_FORM_MAX_BYTES,
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
     // Do not expose a dedicated "account exists" browser response.
     // Immediate sign-in on successful registration still limits full enumeration resistance.
     const code = error instanceof AuthValidationError ? 'validation' : 'server';
-    const outcome = error instanceof AuthConflictError || error instanceof AuthValidationError
+    const outcome = error instanceof AuthConflictError || error instanceof AuthValidationError || error instanceof AuthRequestAbortedError
       ? 'rejected'
       : 'failed';
     return finish(

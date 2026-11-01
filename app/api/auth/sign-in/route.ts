@@ -2,6 +2,7 @@ import { readBoundedFormDataOrThrow } from '@/server/http/bounded-form-body.ts';
 
 import { reserveAuthAttempt } from '@/server/auth/auth-abuse-repository.ts';
 import { AuthCryptoCapacityError } from '@/server/auth/auth-crypto-capacity.ts';
+import { AuthRequestAbortedError } from '@/server/auth/auth-request-abort.ts';
 import { AuthValidationError, validateSignInInput } from '@/server/auth/auth-domain.ts';
 import {
   AUTH_FORM_MAX_BYTES,
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
           : 'server';
     return finish(
       redirectToLocalPath(`/sign-in?error=${code}`),
-      code === 'server' ? 'failed' : 'rejected',
+      error instanceof AuthRequestAbortedError ? 'rejected' : code === 'server' ? 'failed' : 'rejected',
       undefined,
       error instanceof AuthCryptoCapacityError ? true : undefined,
     );

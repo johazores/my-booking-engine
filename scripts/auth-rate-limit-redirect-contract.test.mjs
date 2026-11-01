@@ -17,3 +17,8 @@ for (const flow of ['sign-in', 'sign-up']) {
     assert.match(page, /role="alert"/);
   });
 }
+
+test('signed-out feedback uses a polite accessible status region', () => {
+  const page = readFileSync(new URL('../app/sign-in/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /params\.status === 'signed-out' \? <p className="sf-alert sf-alert--success" role="status">You have been signed out\.<\/p>/);
+});

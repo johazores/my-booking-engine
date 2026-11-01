@@ -25,3 +25,19 @@ test('database quota admission checks abort state and forwards it between scopes
   assert.match(domain, /const identity = await consume\('identity', limits\.identity\);\s*assertAuthRequestNotAborted\(signal\)/);
   assert.match(domain, /const global = await consume\('global', limits\.global\);\s*assertAuthRequestNotAborted\(signal\)/);
 });
+
+test('aborted credential requests do not inflate internal auth failure metrics', () => {
+  const signIn = source('app/api/auth/sign-in/route.ts');
+  const signUp = source('app/api/auth/sign-up/route.ts');
+  for (const route of [signIn, signUp]) {
+    assert.match(route, /import \{ AuthRequestAbortedError \} from '@\/server\/auth\/auth-request-abort\.ts';/);
+    assert.match(route, /error instanceof AuthRequestAbortedError/);
+    assert.match(route, /redirectToLocalPath\(\`\/sign-(?:in|up)\?error=\$\{code\}\`\)/);
+  }
+  assert.match(signIn, /error instanceof AuthRequestAbortedError \? 'rejected' : code === 'server' \? 'failed' : 'rejected'/);
+  assert.match(signUp, /error instanceof AuthConflictError \|\| error instanceof AuthValidationError \|\| error instanceof AuthRequestAbortedError/);
+  // Capacity and unexpected database errors still use the failed outcome.
+  assert.match(signUp, /: 'failed';/);
+  assert.match(signIn, /error instanceof AuthCryptoCapacityError \? true : undefined/);
+  assert.match(signUp, /error instanceof AuthCryptoCapacityError \? true : undefined/);
+});
