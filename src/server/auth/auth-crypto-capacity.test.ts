@@ -166,3 +166,39 @@ test('all expired waiters are rejected and their capacity is fully released', as
   assert.equal(ran, 0);
   assert.equal(await run(async () => 'recovered'), 'recovered');
 });
+
+
+test('expired queue head is evicted before rejecting a fresh admission', async () => {
+  let clock = 0;
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 1, queueTimeoutMs: 1000 }, () => clock);
+  const blocker = deferred();
+  const first = run(async () => blocker.promise);
+  let staleRan = false;
+  const stale = run(async () => { staleRan = true; });
+  clock = 1001;
+  let freshRan = false;
+  const fresh = run(async () => { freshRan = true; return 'fresh'; });
+  await assert.rejects(stale, AuthCryptoCapacityError);
+  assert.equal(staleRan, false);
+  blocker.release();
+  await first;
+  assert.equal(await fresh, 'fresh');
+  assert.equal(freshRan, true);
+});
+
+test('proactive expiration preserves FIFO of still eligible waiters', async () => {
+  let clock = 0;
+  const run = createAuthCryptoLimiter({ maxActive: 1, maxQueued: 2, queueTimeoutMs: 1000 }, () => clock);
+  const blocker = deferred();
+  const first = run(async () => blocker.promise);
+  const order: string[] = [];
+  const stale = run(async () => { order.push('stale'); });
+  clock = 500;
+  const eligible = run(async () => { order.push('eligible'); });
+  clock = 1001;
+  const newcomer = run(async () => { order.push('newcomer'); });
+  await assert.rejects(stale, AuthCryptoCapacityError);
+  blocker.release();
+  await Promise.all([first, eligible, newcomer]);
+  assert.deepEqual(order, ['eligible', 'newcomer']);
+});

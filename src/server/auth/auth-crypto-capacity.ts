@@ -17,6 +17,7 @@ interface AuthCryptoCapacityOptions {
 interface WaitingRequest {
   /** A delayed timer must not allow an expired waiter to inherit a released slot. */
   admit: () => boolean;
+  expireIfOverdue: () => boolean;
 }
 
 /** A slot is transferred directly to the oldest eligible waiter, never briefly made public. */
@@ -35,6 +36,10 @@ export function createAuthCryptoLimiter(
 
   async function acquire(signal?: AbortSignal) {
     assertAuthRequestNotAborted(signal);
+    // Delayed timer callbacks must not let expired waiters occupy a full queue.
+    for (let index = waiting.length - 1; index >= 0; index -= 1) {
+      if (waiting[index].expireIfOverdue()) waiting.splice(index, 1);
+    }
     if (active < maxActive && waiting.length === 0) {
       active += 1;
       return;
@@ -60,17 +65,19 @@ export function createAuthCryptoLimiter(
         removeWaiter();
         reject(new AuthRequestAbortedError());
       };
+      const expireIfOverdue = () => {
+        if (settled || nowMs() < deadline) return false;
+        settled = true;
+        cleanup();
+        reject(new AuthCryptoCapacityError());
+        return true;
+      };
       const waiter: WaitingRequest = {
+        expireIfOverdue,
         admit: () => {
-          if (settled) return false;
+          if (settled || expireIfOverdue()) return false;
           settled = true;
           cleanup();
-          // A busy event loop can delay timer callbacks past the deadline.
-          // Never hand a released crypto slot to an already-expired waiter.
-          if (nowMs() >= deadline) {
-            reject(new AuthCryptoCapacityError());
-            return false;
-          }
           resolve();
           return true;
         },
