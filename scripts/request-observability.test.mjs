@@ -213,3 +213,22 @@ test('legal-document actions surface the response request reference on failures'
     assert.match(source, /throw new Error\(appendRequestReference\(/);
   }
 });
+
+test('aborted credential requests are rejected without impersonating quota or crypto failures', () => {
+  for (const operation of ['auth.sign-in', 'auth.sign-up']) {
+    const record = buildStructuredRequestLogRecord({
+      requestId: 'sf-request.2026-11-02:aborted',
+      operation,
+      statusCode: 303,
+      durationMs: 1,
+      failureOutcome: 'rejected',
+    });
+    assert.equal(record.level, 'warn');
+    assert.equal(record.outcome, 'rejected');
+    assert.equal(record.authRateLimited, undefined);
+    assert.equal(record.authCryptoCapacityLimited, undefined);
+    for (const field of ['email', 'subjectHash', 'clientIp', 'retryAfterSeconds']) {
+      assert.equal(field in record, false);
+    }
+  }
+});

@@ -45,11 +45,11 @@ test('sign-in and sign-up classify redirect-based failures explicitly', () => {
     assert.match(routeSource, /response\.headers\.set\('Retry-After', String\(attempt\.retryAfterSeconds\)\)/);
     assert.match(routeSource, /authRateLimited \? \{ authRateLimited \} : \{\}/);
     if (path.includes('/sign-in/')) {
-      assert.match(routeSource, /code === 'server' \? 'failed' : 'rejected'/);
+      assert.match(routeSource, /error instanceof AuthRequestAbortedError \? 'rejected' : code === 'server' \? 'failed' : 'rejected'/);
     } else {
       // Sign-up intentionally treats confirmed duplicate emails as rejected,
       // while unexpected registration/crypto failures remain failed.
-      assert.match(routeSource, /const outcome = error instanceof AuthConflictError \|\| error instanceof AuthValidationError\s*\?\s*'rejected'\s*:\s*'failed'/);
+      assert.match(routeSource, /const outcome = error instanceof AuthConflictError \|\| error instanceof AuthValidationError \|\| error instanceof AuthRequestAbortedError\s*\?\s*'rejected'\s*:\s*'failed'/);
     }
   }
 });
