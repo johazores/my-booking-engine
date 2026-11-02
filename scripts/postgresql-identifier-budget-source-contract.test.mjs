@@ -93,7 +93,7 @@ test('known unquoted forward migration triggers are included in the budget', () 
 
 test('budget includes raw SQL functions, tables, and schema-qualified named DDL', () => {
   const names = physicalNames([
-    'CREATE OR REPLACE FUNCTION "audit"."sf_commercial_authority"() RETURNS void AS $ SELECT 1 $ LANGUAGE sql;',
+    'CREATE OR REPLACE FUNCTION "audit"."sf_commercial_authority"() RETURNS integer LANGUAGE sql AS $body$ SELECT 1 $body$;',
     'CREATE TABLE IF NOT EXISTS "audit"."settlement_evidence" ("id" integer);',
     'CREATE UNLOGGED TABLE scratch_rows ("id" integer);',
     'CREATE MATERIALIZED VIEW "audit"."settlement_rollup" AS SELECT 1;',
@@ -112,7 +112,7 @@ test('escaped quotes cannot conceal an overlong physical identifier', () => {
   const longName = 'audit"' + 'x'.repeat(65);
   const escaped = '"audit""' + 'x'.repeat(65) + '"';
   const names = physicalNames(
-    'CREATE FUNCTION ' + escaped + '() RETURNS void AS $ SELECT 1 $ LANGUAGE sql; ' +
+    'CREATE FUNCTION ' + escaped + '() RETURNS integer LANGUAGE sql AS $body$ SELECT 1 $body$; ' +
     'CREATE INDEX ' + escaped + ' ON "t"("id");',
   );
   assert.ok(names.filter((name) => name === longName).length >= 2);
