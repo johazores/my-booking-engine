@@ -33,7 +33,14 @@ function physicalNames(sql) {
   const createdObjects = [
     ...sql.matchAll(/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?(?:TABLE|FUNCTION|PROCEDURE|SEQUENCE|MATERIALIZED\s+VIEW|VIEW|TYPE|DOMAIN|SCHEMA|POLICY)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))/gi),
   ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
-  return [...quoted, ...unquoted, ...createdObjects];
+  // ALTER TABLE can introduce physical column identifiers without a Prisma
+  // @map. Only inspect new ADD COLUMN names and RENAME COLUMN destinations;
+  // an old rename source may intentionally be a legacy truncated identifier.
+  const alteredColumns = [
+    ...sql.matchAll(/\bADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))/gi),
+    ...sql.matchAll(/\bRENAME\s+COLUMN\s+(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s+TO\s+(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))/gi),
+  ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
+  return [...quoted, ...unquoted, ...createdObjects, ...alteredColumns];
 }
 
 test('identifier budget includes unquoted DDL and concurrent index names', () => {
@@ -117,6 +124,35 @@ test('escaped quotes cannot conceal an overlong physical identifier', () => {
   );
   assert.ok(names.filter((name) => name === longName).length >= 2);
   assert.ok(byteLength(longName) > MAX_POSTGRES_IDENTIFIER_BYTES);
+});
+
+test('ALTER TABLE added columns and rename destinations are inspected without confusing other ADD statements', () => {
+  const names = physicalNames([
+    'ALTER TABLE "t" ADD COLUMN IF NOT EXISTS "new""column" TEXT;',
+    'ALTER TABLE "t" ADD COLUMN unquoted_column INTEGER;',
+    'ALTER TABLE "t" RENAME COLUMN "old""column" TO "renamed""column";',
+    'ALTER TABLE "t" ADD CONSTRAINT "existing_constraint" CHECK (true);',
+    "ALTER TYPE \"state\" ADD VALUE 'next';",
+  ].join('\n'));
+  for (const name of ['new"column', 'unquoted_column', 'renamed"column']) {
+    assert.ok(names.includes(name), 'missing new physical column: ' + name);
+  }
+  assert.ok(!names.includes('COLUMN'), 'SQL keyword is not a physical identifier');
+  assert.ok(!names.includes('VALUE'), 'enum value additions are not column declarations');
+  assert.ok(!names.includes('old"column'), 'legacy rename sources are not newly created names');
+});
+
+test('ALTER TABLE column additions and rename targets enforce the UTF-8 byte budget', () => {
+  const unquoted = 'new_' + 'x'.repeat(64);
+  const quoted = '名'.repeat(22);
+  const names = physicalNames(
+    'ALTER TABLE "t" ADD COLUMN ' + unquoted + ' INTEGER; ' +
+    'ALTER TABLE "t" RENAME COLUMN "old" TO "' + quoted + '";',
+  );
+  assert.ok(names.includes(unquoted));
+  assert.ok(names.includes(quoted));
+  assert.ok(byteLength(unquoted) > MAX_POSTGRES_IDENTIFIER_BYTES);
+  assert.ok(byteLength(quoted) > MAX_POSTGRES_IDENTIFIER_BYTES);
 });
 
 test('commercial evidence raw SQL functions and tables are inspected', () => {
