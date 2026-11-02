@@ -43,6 +43,19 @@ test('Prisma keeps the exact tenant-scoped lookup tuple and other indexes', () =
   assert.match(schema, /@@unique\(\[id, organizationId\], map: "rental_booking_commercial_amendments_id_org_key"\)/);
 });
 
+// Prisma names physical indexes/constraints with map:, and tables/columns with @map/@@map.
+function explicitPrismaPhysicalNames(source) {
+  return [...source.matchAll(/\bmap:\s*"([^"]+)"|@{1,2}map\s*\(\s*"([^"]+)"\s*\)/g)]
+    .map((match) => match[1] ?? match[2]);
+}
+
+test('physical-name scanner covers index, field, and table mappings', () => {
+  assert.deepEqual(
+    explicitPrismaPhysicalNames('@@index([id], map: "lookup_idx")\n@map("field_name")\n@@map("table_name")'),
+    ['lookup_idx', 'field_name', 'table_name'],
+  );
+});
+
 test('all explicit Prisma physical mappings fit PostgreSQL identifier storage', () => {
   const schemaDirectory = new URL('../prisma/', import.meta.url);
   const files = readdirSync(schemaDirectory).filter((name) => name.endsWith('.prisma')).sort();
@@ -51,10 +64,10 @@ test('all explicit Prisma physical mappings fit PostgreSQL identifier storage', 
   let checked = 0;
   for (const file of files) {
     const contents = readFileSync(new URL(file, schemaDirectory), 'utf8');
-    for (const match of contents.matchAll(/\bmap:\s*"([^"]+)"/g)) {
+    for (const name of explicitPrismaPhysicalNames(contents)) {
       checked += 1;
-      const bytes = Buffer.byteLength(match[1], 'utf8');
-      if (bytes > 63) violations.push(`${file}: ${match[1]} (${bytes} bytes)`);
+      const bytes = Buffer.byteLength(name, 'utf8');
+      if (bytes > 63) violations.push(`${file}: ${name} (${bytes} bytes)`);
     }
   }
   assert.ok(checked > 0);
