@@ -87,7 +87,7 @@ The `20261102084500-rental-commercial-amendment-index-portability` migration ren
 
 New migration SQL from `20260922111500-hospitality-invoice-identifier-portability` onward must keep constraint, index, trigger, and rename-target identifiers within PostgreSQL's 63-byte storage limit. This keeps future migrations explicit instead of relying on server-side truncation and prevents a repeat of the collision/physical-name ambiguity repaired above.
 
-`scripts/postgresql-identifier-budget-source-contract.test.mjs` enforces that boundary directly from checked-in migration SQL. The baseline is intentionally an already-applied portability migration rather than a synthetic migration. Historical migrations remain immutable except for a demonstrated clean-chain blocker; existing legacy names are handled by their focused corrective migrations and source contracts.
+`scripts/postgresql-identifier-budget-source-contract.test.mjs` enforces that boundary directly from checked-in migration SQL. The guard also inspects unquoted PostgreSQL trigger, index, inline/add-constraint, and rename-target identifiers, plus quoted and unquoted concurrent index names. This closes a real scanner gap for seven unquoted triggers in the commercial-settlement, effective-refund, and bond-chronology migrations. The existing 63-byte budget remains unchanged. The baseline is intentionally an already-applied portability migration rather than a synthetic migration. Historical migrations remain immutable except for a demonstrated clean-chain blocker; existing legacy names are handled by their focused corrective migrations and source contracts.
 
 ## Regression protection
 
