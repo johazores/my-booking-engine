@@ -75,6 +75,14 @@ All 13 legacy spellings resolve to distinct 63-byte PostgreSQL-stored identifier
 
 The `20260922122500-hospitality-inventory-identifier-portability` migration renames the exact stored identifiers to compact permanent names. It is rename-only: it does not recreate constraints/indexes, rewrite inventory data, change restriction/availability semantics, or weaken the existing composite tenant tuples. `prisma/schema.prisma` maps the compact foreign-key and index names directly while retaining the same organization/property/room-type/rate-plan relationships.
 
+## Rental commercial-amendment lookup cleanup
+
+The rental commercial-amendment preparation migration created `rental_booking_commercial_amendments_org_booking_status_expiry_idx`, a 66-byte index name for the tenant/booking/status/expiry lookup. PostgreSQL stores the truncated 63-byte `rental_booking_commercial_amendments_org_booking_status_expiry_` identifier. The name is distinct from the neighboring tenant/status/expiry index, but Prisma previously mapped the overlong spelling, leaving physical-name ambiguity and drift risk.
+
+The `20261102084500-rental-commercial-amendment-index-portability` migration renames the exact stored index to `rental_comm_amend_org_booking_status_expiry_idx`. This is a rename-only change: it preserves index columns, ordering, tenant-scoped booking lookup, retained commercial evidence, and all existing data. The Prisma rental commercial-amendment fragment now maps the compact physical name. The original applied migration remains unchanged.
+
+`scripts/rental-commercial-amendment-index-portability-source-contract.test.mjs` checks the original truncated source, the exact rename, preserved tenant-scoped lookup tuple, and a repository-wide 63-byte budget for every explicit Prisma `map:` identifier. This extends the existing forward SQL identifier budget without replacing Prisma drift checks or live PostgreSQL verification.
+
 ## Forward identifier budget
 
 New migration SQL from `20260922111500-hospitality-invoice-identifier-portability` onward must keep constraint, index, trigger, and rename-target identifiers within PostgreSQL's 63-byte storage limit. This keeps future migrations explicit instead of relying on server-side truncation and prevents a repeat of the collision/physical-name ambiguity repaired above.

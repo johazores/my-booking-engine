@@ -56,7 +56,7 @@ model RentalBookingCommercialAmendment {
   @@unique([id, bookingId, organizationId], map: "rental_booking_commercial_amendments_id_booking_org_key")
   @@unique([organizationId, idempotencyKey], map: "rental_booking_commercial_amendments_org_idempotency_key")
   @@unique([organizationId, appliedRescheduleId], map: "rental_booking_commercial_amendments_org_applied_reschedule_key")
-  @@index([organizationId, bookingId, status, expiresAt], map: "rental_booking_commercial_amendments_org_booking_status_expiry_idx")
+  @@index([organizationId, bookingId, status, expiresAt], map: "rental_comm_amend_org_booking_status_expiry_idx")
   @@index([organizationId, status, expiresAt], map: "rental_booking_commercial_amendments_org_status_expiry_idx")
   @@map("rental_booking_commercial_amendments")
 }
