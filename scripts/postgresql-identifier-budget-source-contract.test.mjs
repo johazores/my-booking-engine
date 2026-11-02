@@ -16,12 +16,38 @@ function migrationDirectoriesFromBaseline() {
     .sort();
 }
 
+// PostgreSQL block comments can nest. A non-greedy block-comment regex
+// would stop at the inner */ and mistake the remaining comment for a column.
+function stripLeadingSqlTrivia(segment) {
+  let index = 0;
+  while (index < segment.length) {
+    if (/\s/.test(segment[index])) { index += 1; continue; }
+    if (segment.startsWith('--', index)) {
+      const newline = segment.indexOf('\n', index + 2);
+      index = newline < 0 ? segment.length : newline + 1;
+      continue;
+    }
+    if (segment.startsWith('/*', index)) {
+      let depth = 1;
+      index += 2;
+      while (depth && index < segment.length) {
+        if (segment.startsWith('/*', index)) { depth += 1; index += 2; }
+        else if (segment.startsWith('*/', index)) { depth -= 1; index += 2; }
+        else index += 1;
+      }
+      continue;
+    }
+    break;
+  }
+  return segment.slice(index);
+}
+
 function createdTableColumns(sql) {
   const names = [];
   const head = /\bCREATE\s+(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\(/gi;
   const skip = new Set(['CONSTRAINT', 'PRIMARY', 'UNIQUE', 'FOREIGN', 'CHECK', 'EXCLUDE', 'LIKE']);
   const add = (segment) => {
-    const clean = segment.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, '');
+    const clean = stripLeadingSqlTrivia(segment);
     const match = clean.match(/^(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))(?=\s|$)/);
     if (match && !skip.has((match[2] ?? '').toUpperCase())) names.push((match[1] ?? match[2]).replaceAll('""', '"'));
   };
@@ -250,6 +276,24 @@ test('CREATE TABLE column lists budget actual names across nested SQL expression
   }
   assert.ok(!names.includes('PRIMARY'), 'table-level primary keys are not columns');
   assert.ok(!names.includes('CHECK'), 'table-level constraints are not columns');
+  assert.ok(byteLength(longName) > MAX_POSTGRES_IDENTIFIER_BYTES);
+});
+
+test('CREATE TABLE nested leading block comments cannot hide or invent column names', () => {
+  const longName = '名'.repeat(22);
+  const names = physicalNames([
+    'CREATE TABLE "nested_comments" (',
+    '  /* outer /* inner */ trailing */ "' + longName + '" TEXT,',
+    '  /* outer /* inner */ trailing */ -- before next column',
+    '  "escaped""column" TEXT,',
+    '  /* outer /* inner */ trailing */ CONSTRAINT "nested_check" CHECK (true)',
+    ');',
+  ].join('\n'));
+  for (const name of [longName, 'escaped"column', 'nested_check']) {
+    assert.ok(names.includes(name), 'missing real physical identifier: ' + name);
+  }
+  assert.ok(!names.includes('trailing'), 'nested comment text is not a column');
+  assert.ok(!names.includes('CONSTRAINT'), 'table-level constraint keyword is not a column');
   assert.ok(byteLength(longName) > MAX_POSTGRES_IDENTIFIER_BYTES);
 });
 
