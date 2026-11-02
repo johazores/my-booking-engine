@@ -16,18 +16,75 @@ function migrationDirectoriesFromBaseline() {
     .sort();
 }
 
+function createdTableColumns(sql) {
+  const names = [];
+  const head = /\bCREATE\s+(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\(/gi;
+  const skip = new Set(['CONSTRAINT', 'PRIMARY', 'UNIQUE', 'FOREIGN', 'CHECK', 'EXCLUDE', 'LIKE']);
+  const add = (segment) => {
+    const clean = segment.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, '');
+    const match = clean.match(/^(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))(?=\s|$)/);
+    if (match && !skip.has((match[2] ?? '').toUpperCase())) names.push((match[1] ?? match[2]).replaceAll('""', '"'));
+  };
+  for (const match of sql.matchAll(head)) {
+    let depth = 1;
+    let start = match.index + match[0].length;
+    let quote = null;
+    let blockDepth = 0;
+    let lineComment = false;
+    let dollarTag = null;
+    for (let i = start; i < sql.length; i += 1) {
+      const char = sql[i];
+      const next = sql[i + 1];
+      if (lineComment) { if (char === '\n') lineComment = false; continue; }
+      if (blockDepth) {
+        if (char === '/' && next === '*') { blockDepth += 1; i += 1; }
+        else if (char === '*' && next === '/') { blockDepth -= 1; i += 1; }
+        continue;
+      }
+      if (dollarTag) {
+        if (sql.startsWith(dollarTag, i)) { i += dollarTag.length - 1; dollarTag = null; }
+        continue;
+      }
+      if (quote) {
+        if (char === quote) {
+          if (next === quote) i += 1;
+          else quote = null;
+        }
+        continue;
+      }
+      if (char === '-' && next === '-') { lineComment = true; i += 1; continue; }
+      if (char === '/' && next === '*') { blockDepth = 1; i += 1; continue; }
+      if (char === '"' || char === "'") { quote = char; continue; }
+      if (char === '$') {
+        const tag = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
+        if (tag) { dollarTag = tag; i += tag.length - 1; continue; }
+      }
+      if (char === '(') depth += 1;
+      else if (char === ')') {
+        depth -= 1;
+        if (depth === 0) { add(sql.slice(start, i)); break; }
+      } else if (char === ',' && depth === 1) { add(sql.slice(start, i)); start = i + 1; }
+    }
+  }
+  return names;
+}
+
 function physicalNames(sql) {
   // PostgreSQL escapes double quotes inside quoted identifiers as "".
   const quoted = [
-    ...sql.matchAll(/\b(?:CONSTRAINT|INDEX|TRIGGER)\s+(?:CONCURRENTLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"((?:[^"]|"")+)"/gi),
+    ...sql.matchAll(/\b(?:CONSTRAINT|TRIGGER)\s+(?:CONCURRENTLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"((?:[^"]|"")+)"/gi),
     ...sql.matchAll(/\bRENAME\s+TO\s+"((?:[^"]|"")+)"/gi),
   ].map((match) => match[1].replaceAll('""', '"'));
   const unquoted = [
     ...sql.matchAll(/\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+([A-Za-z_][A-Za-z0-9_$]*)/gi),
-    ...sql.matchAll(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_$]*)\s+ON\b/gi),
     ...sql.matchAll(/\b(?:ADD\s+CONSTRAINT|RENAME\s+TO)\s+([A-Za-z_][A-Za-z0-9_$]*)/gi),
     ...sql.matchAll(/(?:\(|,)\s*CONSTRAINT\s+([A-Za-z_][A-Za-z0-9_$]*)/gi),
   ].map((match) => match[1]);
+  // Index names may be schema-qualified. Budget the final identifier, not
+  // the preceding schema name (which is not the created index).
+  const createdIndexes = [
+    ...sql.matchAll(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))\s+ON\b/gi),
+  ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
   // Raw SQL functions and tables have no necessary Prisma map. Include other
   // common named CREATE objects, with optional schema qualification.
   const createdObjects = [
@@ -40,7 +97,12 @@ function physicalNames(sql) {
     ...sql.matchAll(/\bADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))/gi),
     ...sql.matchAll(/\bRENAME\s+COLUMN\s+(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s+TO\s+(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))/gi),
   ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
-  return [...quoted, ...unquoted, ...createdObjects, ...alteredColumns];
+  // PostgreSQL also accepts ALTER TABLE ... ADD name type without COLUMN.
+  // Exclude table-level constraint forms and let ADD COLUMN use the scanner above.
+  const addedColumnsWithoutKeyword = [
+    ...sql.matchAll(/\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s+ADD\s+(?:IF\s+NOT\s+EXISTS\s+)?(?!COLUMN\b|CONSTRAINT\b|CHECK\b|UNIQUE\b|PRIMARY\b|FOREIGN\b|EXCLUDE\b)(?:"((?:[^"]|"")+)"|([A-Za-z_][A-Za-z0-9_$]*))\s+/gi),
+  ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
+  return [...quoted, ...unquoted, ...createdIndexes, ...createdObjects, ...alteredColumns, ...addedColumnsWithoutKeyword, ...createdTableColumns(sql)];
 }
 
 test('identifier budget includes unquoted DDL and concurrent index names', () => {
@@ -153,6 +215,67 @@ test('ALTER TABLE column additions and rename targets enforce the UTF-8 byte bud
   assert.ok(names.includes(quoted));
   assert.ok(byteLength(unquoted) > MAX_POSTGRES_IDENTIFIER_BYTES);
   assert.ok(byteLength(quoted) > MAX_POSTGRES_IDENTIFIER_BYTES);
+});
+
+test('schema-qualified index declarations budget the created index rather than its schema', () => {
+  const longName = 'index_' + 'x'.repeat(64);
+  const names = physicalNames([
+    'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "audit"."new""idx" ON "t"("id");',
+    'CREATE INDEX audit.plain_idx ON "t"("id");',
+    'CREATE INDEX "audit"."' + longName + '" ON "t"("id");',
+  ].join('\n'));
+  for (const name of ['new"idx', 'plain_idx', longName]) {
+    assert.ok(names.includes(name), 'missing index identifier: ' + name);
+  }
+  assert.ok(!names.includes('audit'), 'schema name must not substitute for the index name');
+  assert.ok(byteLength(longName) > MAX_POSTGRES_IDENTIFIER_BYTES);
+});
+
+test('CREATE TABLE column lists budget actual names across nested SQL expressions', () => {
+  const longName = '名'.repeat(22);
+  const names = physicalNames([
+    'CREATE TABLE IF NOT EXISTS "audit"."complex" (',
+    '  "new""column" TEXT DEFAULT ' + "'hello, (world)'" + ',',
+    '  -- a comment with commas and parentheses (,) ',
+    '  "' + longName + '" TEXT,',
+    '  unquoted_column INTEGER,',
+    '  CONSTRAINT "shape_check" CHECK (unquoted_column IN (1, 2)),',
+    '  PRIMARY KEY (unquoted_column),',
+    '  "literal" TEXT DEFAULT $$hello, (world)$$,',
+    '  /* ignored, ( */ "last_column" INTEGER',
+    ');',
+  ].join('\n'));
+  for (const name of ['new"column', longName, 'unquoted_column', 'literal', 'last_column']) {
+    assert.ok(names.includes(name), 'missing table column: ' + name);
+  }
+  assert.ok(!names.includes('PRIMARY'), 'table-level primary keys are not columns');
+  assert.ok(!names.includes('CHECK'), 'table-level constraints are not columns');
+  assert.ok(byteLength(longName) > MAX_POSTGRES_IDENTIFIER_BYTES);
+});
+
+test('ALTER TABLE ADD without COLUMN also budgets physical names', () => {
+  const names = physicalNames([
+    'ALTER TABLE "audit"."t" ADD IF NOT EXISTS "new""column" TEXT;',
+    'ALTER TABLE "t" ADD plain_column INTEGER;',
+    'ALTER TABLE "t" ADD CONSTRAINT "shape_check" CHECK (true);',
+    'ALTER TABLE "t" ADD CHECK (true);',
+  ].join('\n'));
+  for (const name of ['new"column', 'plain_column']) {
+    assert.ok(names.includes(name), 'missing ADD column: ' + name);
+  }
+  assert.ok(!names.includes('CONSTRAINT'), 'constraint keywords are not columns');
+  assert.ok(!names.includes('CHECK'), 'CHECK is not a column declaration');
+});
+
+test('forward migration CREATE TABLE declarations include all auth quota columns', () => {
+  const sql = readFileSync(
+    new URL('../prisma/migrations/20261030062500_auth_attempt_windows/migration.sql', import.meta.url),
+    'utf8',
+  );
+  const names = physicalNames(sql);
+  for (const name of ['operation', 'scope', 'subjectHash', 'windowStart', 'attempts']) {
+    assert.ok(names.includes(name), 'missing auth quota table column: ' + name);
+  }
 });
 
 test('commercial evidence raw SQL functions and tables are inspected', () => {
