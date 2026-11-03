@@ -42,6 +42,77 @@ function stripLeadingSqlTrivia(segment) {
   return segment.slice(index);
 }
 
+// Exclude non-executable SQL text, preserving quoted identifiers and positions.
+function maskSqlNonCode(sql) {
+  const masked = sql.split('');
+  const blank = (start, end) => {
+    for (let position = start; position < end; position += 1) {
+      if (sql[position] !== '\n' && sql[position] !== '\r') masked[position] = ' ';
+    }
+  };
+  let index = 0;
+  while (index < sql.length) {
+    const start = index;
+    if (sql.startsWith('--', index)) {
+      const newline = sql.indexOf('\n', index + 2);
+      index = newline < 0 ? sql.length : newline;
+      blank(start, index);
+      continue;
+    }
+    if (sql.startsWith('/*', index)) {
+      let depth = 1;
+      index += 2;
+      while (index < sql.length && depth > 0) {
+        if (sql.startsWith('/*', index)) { depth += 1; index += 2; }
+        else if (sql.startsWith('*/', index)) { depth -= 1; index += 2; }
+        else index += 1;
+      }
+      blank(start, index);
+      continue;
+    }
+    if (sql[index] === '"') {
+      index += 1;
+      while (index < sql.length) {
+        if (sql[index] === '"') {
+          index += 1;
+          if (sql[index] === '"') index += 1;
+          else break;
+        } else index += 1;
+      }
+      continue;
+    }
+    if (sql[index] === "'") {
+      const escapeString = /[eE]/.test(sql[index - 1] ?? '') &&
+        (index === 1 || !/[A-Za-z0-9_$]/.test(sql[index - 2]));
+      index += 1;
+      while (index < sql.length) {
+        if (escapeString && sql[index] === '\\') {
+          index += Math.min(2, sql.length - index);
+          continue;
+        }
+        if (sql[index] === "'") {
+          index += 1;
+          if (sql[index] === "'") index += 1;
+          else break;
+        } else index += 1;
+      }
+      blank(start, index);
+      continue;
+    }
+    if (sql[index] === '$' && (index === 0 || !/[A-Za-z0-9_$]/.test(sql[index - 1]))) {
+      const tag = sql.slice(index).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/)?.[0];
+      if (tag) {
+        const closing = sql.indexOf(tag, index + tag.length);
+        index = closing < 0 ? sql.length : closing + tag.length;
+        blank(start, index);
+        continue;
+      }
+    }
+    index += 1;
+  }
+  return masked.join('');
+}
+
 function createdTableColumns(sql) {
   const names = [];
   const head = /\bCREATE\s+(?:(?:TEMP|TEMPORARY|UNLOGGED)\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\.\s*)?(?:"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*)\s*\(/gi;
@@ -95,7 +166,8 @@ function createdTableColumns(sql) {
   return names;
 }
 
-function physicalNames(sql) {
+function physicalNames(source) {
+  const sql = maskSqlNonCode(source);
   // PostgreSQL escapes double quotes inside quoted identifiers as "".
   const quoted = [
     ...sql.matchAll(/\b(?:CONSTRAINT|TRIGGER)\s+(?:CONCURRENTLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"((?:[^"]|"")+)"/gi),
@@ -130,6 +202,36 @@ function physicalNames(sql) {
   ].map((match) => (match[1] ?? match[2]).replaceAll('""', '"'));
   return [...quoted, ...unquoted, ...createdIndexes, ...createdObjects, ...alteredColumns, ...addedColumnsWithoutKeyword, ...createdTableColumns(sql)];
 }
+
+test('commented and literal DDL does not create phantom physical identifiers', () => {
+  const phantom = 'phantom_' + 'x'.repeat(64);
+  const names = physicalNames([
+    '-- CREATE INDEX "' + phantom + '" ON "t"("id");',
+    '/* outer /* CREATE TABLE "' + phantom + '" ("id" INTEGER); */ CREATE TRIGGER "' + phantom + '" BEFORE INSERT ON "t" EXECUTE FUNCTION f(); */',
+    '/* ALTER TABLE "t" ADD COLUMN "' + phantom + '" TEXT; */',
+    'SELECT ' + "'" + 'CREATE INDEX "' + phantom + '" ON "t"("id");' + "'" + ';',
+    'DO $body$ BEGIN EXECUTE ' + "'" + 'CREATE TABLE "' + phantom + '" ("id" INTEGER);' + "'" + '; END; $body$;',
+    'SELECT $$ALTER TABLE "t" RENAME COLUMN "old" TO "' + phantom + '";$$;',
+    'CREATE TABLE "real_table" ("real_column" TEXT);',
+    'CREATE INDEX "real_index" ON "real_table" ("real_column");',
+  ].join('\n'));
+  assert.ok(!names.includes(phantom), 'comments and literals must not produce DDL names');
+  for (const name of ['real_table', 'real_column', 'real_index']) {
+    assert.ok(names.includes(name), 'missing executable DDL name: ' + name);
+  }
+});
+
+test('escaped strings and quoted identifiers retain executable column authority', () => {
+  const phantom = 'phantom_' + 'x'.repeat(64);
+  const names = physicalNames([
+    "SELECT E'escaped \\' CREATE INDEX \"" + phantom + "\" ON t(id)';",
+    'CREATE TABLE "quoted' + "'" + 'table" ("quoted' + "'" + 'column" TEXT DEFAULT ' + "'" + 'hello, (world)' + "'" + ', "real""column" TEXT DEFAULT $$CREATE INDEX "' + phantom + '" ON t(id)$$);',
+  ].join('\n'));
+  for (const name of ["quoted'table", "quoted'column", 'real"column']) {
+    assert.ok(names.includes(name), 'missing quoted executable identifier: ' + name);
+  }
+  assert.ok(!names.includes(phantom), 'string content must not be scanned as executable DDL');
+});
 
 test('identifier budget includes unquoted DDL and concurrent index names', () => {
   const names = physicalNames(`
